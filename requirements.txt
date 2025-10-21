@@ -1,0 +1,42 @@
+# Core Packages
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+prisma==0.11.0
+asyncpg==0.29.0
+
+# Pydantic (upgraded)
+pydantic==2.12.3
+pydantic-settings==2.11.0
+
+# Auth / Security
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.6
+email-validator==2.3.0
+
+# Google APIs
+google-auth==2.23.4
+google-auth-oauthlib==1.1.0
+google-auth-httplib2==0.1.1
+google-api-python-client==2.108.0
+
+# Utilities
+python-dotenv==1.0.0
+pytz==2025.2
+requests
+numpy
+pandas
+pymongo
+
+# PDF / Document Handling
+PyMuPDF==1.22.5
+PyPDF2
+
+# Password hashing
+passlib[bcrypt]==1.7.4
+
+# Firebase
+firebase-admin
+
+openai==2.6.0
+langchain-openai==1.0.0
+langchain==1.0.1

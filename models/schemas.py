@@ -149,13 +149,6 @@ class JobUpdate(BaseModel):
     socialMedia: Optional[bool] = None
     applicationFormFields: Optional[Dict[str, Union[str, int, bool]]] = None
 
-class JobResponse(JobBase):
-    id: str
-    status: JobStatus
-    createdAt: datetime
-    updatedAt: datetime
-    publishedAt: Optional[datetime] = None
-    closedAt: Optional[datetime] = None
 
 # Step-by-step job creation schemas
 class JobBasicInfo(BaseModel):
@@ -219,10 +212,50 @@ class JobStep3Response(BaseModel):
     sessionId: str
     jobData: Dict[str, Optional[dict]]
 
+class JobResponse(JobBase):
+    id: str
+    status: JobStatus
+    createdAt: datetime
+    updatedAt: datetime
+    publishedAt: Optional[datetime] = None
+    closedAt: Optional[datetime] = None
+
+
 class JobCreationCompleteResponse(BaseModel):
     message: str
     job: JobResponse
     publishedTo: List[str] = []
+
+# Creating job for candidate
+class JobCreateRequest(BaseModel):
+    title: str = Field(..., min_length=2)
+    department: str
+    location: str
+    employmentType: EmploymentType
+    salaryMin: int
+    salaryMax: int
+    salaryPeriod: SalaryPeriod
+    description: str
+    skills: List[str]
+    education: Optional[str] = None
+    languages: List[Dict[str, str]] = []  # ✅ Add default
+
+
+class GuestJobResponse(BaseModel):
+    id: str
+    title: str
+    department: str
+    location: str
+    employmentType: EmploymentType
+    salaryMin: int
+    salaryMax: int
+    salaryPeriod: SalaryPeriod
+    description: str
+    skills: List[str]
+    education: Optional[str]
+    createdAt: datetime
+
+
 
 # Interview Scheduling Schemas
 class CandidateEducation(BaseModel):
@@ -288,7 +321,8 @@ class ChatHistoryItem(BaseModel):
     timestamp: datetime
 
 class InterviewResponseRequest(BaseModel):
-    jd_text: str
+    interviewId: str
+    jd_text: dict
     question: str
     user_input: str
     last_score: Optional[int] = 3
@@ -315,6 +349,52 @@ class InterviewFeedbackRequest(BaseModel):
     detailedFeedback: str
     nextSteps: Optional[str] = None
 
+class ScheduleInterviewResponse(BaseModel):
+    # Core Interview Fields
+    id: str
+    candidateId: str
+    candidateName: str
+    candidateEmail: str
+    applicationId: Optional[str]
+    jobId: str
+    jobTitle: str
+    interviewType: InterviewType
+    status: InterviewStatus
+    scheduledAt: datetime
+    duration: int
+    timezone: str
+    interviewers: List[InterviewerInfo] = []
+    meetingLink: Optional[str] = None
+    location: Optional[str] = None
+    notes: Optional[str] = None
+    feedback: Optional[dict] = None
+    invitationSent: bool = False
+    joinToken: Optional[str] = None
+    tokenExpiry: Optional[datetime] = None
+    createdAt: datetime
+    updatedAt: datetime
+
+    # Candidate Additional Fields
+    candidateEducation: Optional[List[CandidateEducation]] = None
+    candidateExperience:Optional[List[CandidateExperience]] = None
+    candidateSkills: List[str] = []
+    
+    candidateLinkedIn: Optional[str] = None
+    candidateGitHub: Optional[str] = None
+    candidateLocation: Optional[str] = None
+
+    # Application
+    coverLetter: Optional[str] = None
+
+    # Job Additional Fields
+    jobDepartment: Optional[str] = None
+    jobDescription: Optional[str] = None
+    jobResponsibility: Optional[List[str]] = []
+    jobSkills: Optional[List[str]] = []
+    jobEducation: Optional[str] = None
+    jobCertificates: Optional[List[str]] = []
+    jobPublished: Optional[datetime] = None
+
 class InterviewResponse(BaseModel):
     # Core Interview Fields
     id: str
@@ -340,6 +420,8 @@ class InterviewResponse(BaseModel):
     createdAt: datetime
     updatedAt: datetime
 
+   
+
 class InterviewCalendarEvent(BaseModel):
     title: str
     description: str
@@ -363,7 +445,7 @@ class InterviewConfirmationRequest(BaseModel):
 class InterviewJoinResponse(BaseModel):
     success: bool
     message: str
-    interview: Optional[InterviewResponse] = None
+    interview: Optional[ScheduleInterviewResponse] = None
     redirectUrl: Optional[str] = None
 
 # Candidate schemas
@@ -443,8 +525,6 @@ class CandidateBase(BaseModel):
     linkedin: Optional[str] = None
     github: Optional[str] = None
 
-    isGuest: bool = False  # <-- added field
-
 class CandidateCreate(CandidateBase):
     pass
 
@@ -467,6 +547,7 @@ class ApplicationBase(BaseModel):
     jobId: str
     candidateId: str
     coverLetter: Optional[str] = None
+    matchScore: Optional[int] = None
 
 class ApplicationCreate(ApplicationBase):
     userId: str  # Add userId to ApplicationCreate
@@ -482,9 +563,11 @@ class ApplicationResponse(ApplicationBase):
     status: ApplicationStatus
     matchScore: Optional[int] = None
     notes: Optional[str] = None
-    userId:str
+    userId: str
     appliedAt: datetime
     updatedAt: datetime
+    joinToken: Optional[str] = None
+    tokenExpiry: Optional[datetime] = None
 
 # Dashboard schemas
 

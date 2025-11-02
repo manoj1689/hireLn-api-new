@@ -6,7 +6,7 @@ from pydantic import Json
 from service.activity_service import ActivityHelpers
 from database import get_db
 from models.schemas import (
-    JobCreate, JobUpdate, JobResponse, UserResponse, JobStatus,
+    GuestJobResponse, JobCreate, JobCreateRequest, JobUpdate, JobResponse, UserResponse, JobStatus,
     JobBasicInfo, JobDetails, JobRequirements, JobPublishOptions,
     JobStep1Response, JobStep2Response, JobStep3Response, 
     JobCreationCompleteResponse, JobStepperCreate
@@ -319,6 +319,32 @@ async def get_jobs(
     
     return [JobResponse(**job.dict()) for job in jobs]
 
+@router.post("/create-job", response_model=GuestJobResponse)
+async def create_job(
+    req: JobCreateRequest,
+    current_user: UserResponse = Depends(get_current_user)
+):
+    db = get_db()
+
+    job = await db.job.create(
+        data = {
+        "title": req.title,
+        "department": req.department,
+        "location": req.location,
+        "employmentType": req.employmentType,
+        "salaryMin": req.salaryMin,
+        "salaryMax": req.salaryMax,
+        "salaryPeriod": req.salaryPeriod,
+        "description": req.description,
+        "skills": req.skills,
+        "education": req.education,
+        "languages": json.dumps(req.languages) if req.languages else "[]",
+        "userId": current_user.id,
+    }
+    )
+
+    return GuestJobResponse(**job.dict())
+
 
 @router.get("/{job_id}", response_model=JobResponse)
 async def get_job(
@@ -329,7 +355,7 @@ async def get_job(
     db = get_db()
     
     job = await db.job.find_unique(
-        where={"id": job_id, "userId": current_user.id}  # ✅ ownership check
+         where={"id": job_id, "userId": current_user.id}  # ✅ ownership check
         # where={"id": job_id,}  # ✅ ownership check
     )
     

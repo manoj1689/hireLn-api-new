@@ -73,12 +73,13 @@ async def get_admin_user(current_user: UserResponse = Depends(get_current_user))
 
 
 
-# ✅ Interview token validation - token only
+
+# ✅ Verify interview or application token
 async def verify_interview_token(token: str) -> dict:
-    """Verify interview token and return interview data"""
+    """Verify interview or application token and return associated data"""
     db = get_db()
     
-    # Find interview by joinToken only
+    # Step 1️⃣ — Try to find interview by joinToken
     interview = await db.interview.find_first(
         where={"joinToken": token},
         include={
@@ -92,10 +93,38 @@ async def verify_interview_token(token: str) -> dict:
         }
     )
 
+    # Step 2️⃣ — If not found in interview, check in application
     if not interview:
-        raise HTTPException(status_code=401, detail="Invalid interview token")
+        application = await db.application.find_first(
+            where={"joinToken": token},
+            include={
+                "candidate": True,
+                "job": True,
+                "user": True
+            }
+        )
 
-    # Check token expiry
+        if not application:
+            raise HTTPException(status_code=401, detail="Invalid interview token")
+
+        # Step 3️⃣ — Check token expiry for application
+        if application.tokenExpiry:
+            current_time = datetime.now(timezone.utc)
+            token_expiry = application.tokenExpiry
+            if token_expiry.tzinfo is None:
+                token_expiry = token_expiry.replace(tzinfo=timezone.utc)
+            if current_time > token_expiry:
+                raise HTTPException(status_code=401, detail="Application token has expired")
+
+        # ✅ Return Application token details
+        return {
+            "source": "application",
+            "candidate": application.candidate,
+            "job": application.job,
+            "recruiter": application.user,
+        }
+
+    # Step 4️⃣ — Check token expiry for interview
     if interview.tokenExpiry:
         current_time = datetime.now(timezone.utc)
         token_expiry = interview.tokenExpiry
@@ -104,7 +133,9 @@ async def verify_interview_token(token: str) -> dict:
         if current_time > token_expiry:
             raise HTTPException(status_code=401, detail="Interview token has expired")
 
+    # ✅ Return Interview token details
     return {
+        "source": "interview",
         "interview": interview,
         "candidate": interview.candidate,
         "job": interview.application.job,

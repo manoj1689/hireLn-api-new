@@ -33,7 +33,6 @@ model User {
   interviews          Interview[]
   activities          Activity[]
   companies           Company[]
-  chatHistory         ChatHistory[]
   userSettings        UserSettings? 
 
   
@@ -387,8 +386,8 @@ model Candidate {
   salaryExpectation Int?
   department        String?
 
-  applicationStatus String?
-  interviewStatus   String?
+  applicationStatus ApplicationStatus  @default(NEW)
+  interviewStatus   InterviewStatus @default(NOT_SCHEDULED)
   resume            String?
   portfolio         String?
   linkedin          String?
@@ -416,6 +415,9 @@ model Application {
   status       ApplicationStatus @default(INVITED)
   matchScore   Int?
   notes        String?
+  
+  joinToken       String?       // Token for joining the interview
+  tokenExpiry     DateTime?     // Token expiration datetime
 
   appliedAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
@@ -469,6 +471,7 @@ model Interview {
   // Timestamps
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
+  startedAt      DateTime?
   completedAt   DateTime?
 
   // Relations
@@ -479,6 +482,8 @@ model Interview {
 
   interviewResult InterviewResult?
 
+  chatHistory     ChatHistory[]   @relation("InterviewToChatHistory")
+  evaluations     Evaluation[]    @relation("InterviewToEvaluations")     
   @@map("interviews")
 }
 
@@ -512,26 +517,27 @@ model InterviewResult {
 
 model ChatHistory {
   id            String       @id @default(cuid())
-  userId        String
+  interviewId   String       
   candidateId   String?
   applicationId String?
   question      String
   answer        String?
-  score         Int? 
-  level         Int          @default(1)
-  createdAt     DateTime     @default(now())
+  score         Int?
+  level         Int           @default(1)
+  createdAt     DateTime      @default(now())
 
-  // Relations
-  user          User         @relation(fields: [userId], references: [id])
+  // Relation
+  interview     Interview     @relation("InterviewToChatHistory", fields: [interviewId], references: [id], onDelete: Cascade)
 
   @@map("chat_history")
 }
 
 
+
 // ✅ UPDATED: Evaluation model with questionText and answerText fields
 model Evaluation {
   id                           String    @id @default(cuid())
-  userId                       String
+  interviewId                  String   
   question                     String    // ✅ NEW: Store question text
   answer                       String    // ✅ NEW: Store answer text
   factualAccuracy              String?
@@ -550,7 +556,8 @@ model Evaluation {
   createdAt                    DateTime  @default(now())
   updatedAt                    DateTime  @updatedAt
 
-
+  // Relation
+  interview     Interview     @relation("InterviewToEvaluations", fields: [interviewId], references: [id], onDelete: Cascade)
  @@map("evaluations")
 }
 
@@ -586,6 +593,7 @@ enum JobStatus {
 }
 
 enum ApplicationStatus {
+  NEW
   INVITED
   APPLIED
   SCREENING
@@ -610,7 +618,7 @@ enum InterviewStatus {
   IN_PROGRESS
   COMPLETED
   CANCELLED
-  NO_SHOW
+  NOT_SCHEDULED
   RESCHEDULED
   INVITED
   JOINED

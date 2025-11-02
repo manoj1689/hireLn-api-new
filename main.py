@@ -9,7 +9,7 @@ from database import connect_db, disconnect_db
 
 
 # Import routers
-from routers import auth, jobs, candidates, interviews, dashboard, interview_join, ai_tools, settings, company,applications,ai_interview
+from routers import application, auth, jobs, candidates, interviews, dashboard, interview_join, ai_tools, settings, company,ai_interview,try_interview
 
 from config.firebase_config import init_firebase
 
@@ -50,9 +50,10 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(candidates.router, prefix="/api/candidates", tags=["Candidates"])
-app.include_router(applications.router, prefix="/api/applications", tags=["applications"])
+app.include_router(application.router, prefix="/api/application", tags=["application"])
 
 app.include_router(interviews.router, prefix="/api/interviews", tags=["Interviews"])
+app.include_router(try_interview.router, prefix="/api/try-interview", tags=["Try Interview"])
 app.include_router(interview_join.router, prefix="/api/interview-join", tags=["Interview Join"])
 app.include_router(ai_interview.router, prefix="/api/ai-interview", tags=["AI Interview"])
 

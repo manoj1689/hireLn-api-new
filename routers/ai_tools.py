@@ -197,63 +197,7 @@ def extract_resume_data(text: str) -> CandidateCreate:
     except Exception as e:
         logger.error("OpenAI API call failed", exc_info=True)
         raise HTTPException(status_code=500, detail=f"OpenAI API failed: {str(e)}")
-    
 
-
-
-@router.post("/parse_resumes_from_drive")
-async def parse_resumes_from_drive(
-    folder_id: str = Query(..., description="Google Drive folder ID containing the resumes."),
-    limit: int = Query(4, gt=0, le=100),
-    current_user: UserResponse = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
-):
-    if not drive_service:
-        raise HTTPException(status_code=500, detail="Google Drive service not initialized.")
-
-    results = []
-
-    try:
-        query = f"'{folder_id}' in parents and trashed = false and mimeType='application/pdf'"
-        response = drive_service.files().list(q=query, fields="files(id, name)").execute()
-        files = response.get("files", [])[:limit]
-
-        for file in files:
-            file_id = file["id"]
-            file_name = file["name"]
-            temp_path = Path(tempfile.gettempdir()) / file_name
-
-            try:
-                # Download file
-                download_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
-                headers = {"Authorization": f"Bearer {credentials.token}"}
-                res = requests.get(download_url, headers=headers)
-
-                if res.status_code != 200:
-                    raise Exception(f"Failed to download {file_name} from Google Drive.")
-
-                with open(temp_path, "wb") as f:
-                    f.write(res.content)
-
-                result = await process_resume_file(temp_path, file_name, current_user, db)
-                results.append(result)
-
-            except Exception as e:
-                results.append({
-                    "file": file_name,
-                    "success": False,
-                    "message": str(e)
-                })
-            finally:
-                if temp_path.exists():
-                    temp_path.unlink(missing_ok=True)
-
-        return {"summary": results}
-
-    except Exception as e:
-        logger.exception("Error in parse_resumes_from_drive")
-        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
-   
 # --- process_resume_file function ---
 async def process_resume_file(
     temp_path: Path,
@@ -295,6 +239,57 @@ async def process_resume_file(
         return {"file": file_name, "success": False, "message": str(e), "resume_id": resume_id}
 
 
+# --- create-candidate_resume_upload endpoint ---
+@router.post("/create-candidate")
+async def create_candidate(
+    file: UploadFile = File(..., description="Upload a PDF resume to create candidate"),
+    current_user: UserResponse = Depends(get_current_user),
+    db: Prisma = Depends(get_db)
+):
+    """
+    Upload a single resume, parse it, create a candidate record and return result
+    """
+    resume_id = str(uuid.uuid4())
+    temp_path = None
+    file_name = file.filename
+
+    try:
+        # ✅ Save uploaded PDF temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+            temp_file.write(await file.read())
+            temp_path = Path(temp_file.name)
+
+        # ✅ Read and clean resume text
+        raw_text = read_resume(temp_path)
+        cleaned_text = clean_extracted_text(raw_text)
+
+        # ✅ Parse structured data from resume
+        parsed_data = extract_resume_data(cleaned_text)
+
+        # ✅ Save candidate to DB
+        success, message, candidate_info = await create_candidate_from_parsed_data(
+            parsed_data,
+            current_user,
+            db,
+            resume_id=resume_id,
+            resume_name=file_name
+        )
+
+        return {
+            "status": success,
+            "message": message,
+            "candidate": candidate_info
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create candidate: {str(e)}")
+
+    finally:
+        # ✅ Cleanup temp file
+        if temp_path and temp_path.exists():
+            temp_path.unlink()
+
+            
 # --- parse_resumes_upload endpoint ---
 @router.post("/parse-resumes-upload")
 async def parse_resumes_upload(
@@ -385,13 +380,13 @@ async def get_matched_candidates(
     return top_resumes
 
 
-@router.post("/process-resume/parse-only")
-async def process_resume_parse_only(
-    resume_id: str = Form(..., description="Existing resume_id from MongoDB"),
+@router.post("/process-resume/preview-candidate/{resume_id}")
+async def preview_candidate_from_resume(
+    resume_id: str,
     current_user: UserResponse = Depends(get_current_user)
 ):
     """
-    Process (parse) an existing resume by its ID — without creating a candidate record.
+    Parse an existing resume and return candidate-like object without saving to DB.
     """
     try:
         # 1️⃣ Fetch resume text from MongoDB
@@ -402,56 +397,114 @@ async def process_resume_parse_only(
         resume_text = resume_data.get("text", "")
         resume_file_name = resume_data.get("filename", "unknown")
 
-        # 2️⃣ Parse the resume text
+        # 2️⃣ Parse resume text
         parsed_data = extract_resume_data(resume_text)
+        print("parsed data",parsed_data)
+        # 3️⃣ Create candidate object (in memory)
+        
 
-        # 3️⃣ Return parsed info (do not create candidate)
+        # 4️⃣ Return the candidate object
         return {
             "status": "success",
-            "message": "Resume parsed successfully",
+            "message": "Candidate preview generated successfully",
             "resume_id": resume_id,
             "filename": resume_file_name,
-            "parsed_data": parsed_data,
+            "candidate_data": parsed_data,  # return as object/dict
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-
-# --- process_single_resume by ID endpoint ---
-@router.post("/process-resume")
+@router.post("/process-resume/{resume_id}")
 async def process_resume_by_id(
-    resume_id: str = Form(..., description="Existing resume_id from MongoDB"),
+    resume_id: str,
     current_user: UserResponse = Depends(get_current_user),
     db: Prisma = Depends(get_db)
 ):
-    """
-    Process an existing resume by its resume_id.
-    No file upload required.
-    """
     try:
-        
         resume_data = get_resume_text_by_id(resume_id)
-         
-        resume_text=resume_data["text"] 
-        resume_file_name=resume_data["filename"]
-        # Parse resume data
+        if not resume_data:
+            raise HTTPException(status_code=404, detail="Resume not found")
+
+        resume_text = resume_data.get("text", "")
+        resume_file_name = resume_data.get("filename", "unknown")
+
         parsed_data = extract_resume_data(resume_text)
 
-        # 4️⃣ Create candidate record with resume_id
-        success, message = await create_candidate_from_parsed_data(
+        success, message, candidate_info = await create_candidate_from_parsed_data(
             parsed_data,
             current_user,
             db,
             resume_id=resume_id,
             resume_name=resume_file_name
-            
         )
 
-        return {"status": success, "data": message}
+        return {
+            "status": success,
+            "message": message,
+            "candidate": candidate_info
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@router.post("/parse_resumes_from_drive")
+async def parse_resumes_from_drive(
+    folder_id: str = Query(..., description="Google Drive folder ID containing the resumes."),
+    limit: int = Query(4, gt=0, le=100),
+    current_user: UserResponse = Depends(get_current_user),
+    db: Prisma = Depends(get_db)
+):
+    if not drive_service:
+        raise HTTPException(status_code=500, detail="Google Drive service not initialized.")
+
+    results = []
+
+    try:
+        query = f"'{folder_id}' in parents and trashed = false and mimeType='application/pdf'"
+        response = drive_service.files().list(q=query, fields="files(id, name)").execute()
+        files = response.get("files", [])[:limit]
+
+        for file in files:
+            file_id = file["id"]
+            file_name = file["name"]
+            temp_path = Path(tempfile.gettempdir()) / file_name
+
+            try:
+                # Download file
+                download_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
+                headers = {"Authorization": f"Bearer {credentials.token}"}
+                res = requests.get(download_url, headers=headers)
+
+                if res.status_code != 200:
+                    raise Exception(f"Failed to download {file_name} from Google Drive.")
+
+                with open(temp_path, "wb") as f:
+                    f.write(res.content)
+
+                result = await process_resume_file(temp_path, file_name, current_user, db)
+                results.append(result)
+
+            except Exception as e:
+                results.append({
+                    "file": file_name,
+                    "success": False,
+                    "message": str(e)
+                })
+            finally:
+                if temp_path.exists():
+                    temp_path.unlink(missing_ok=True)
+
+        return {"summary": results}
 
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        logger.exception("Error in parse_resumes_from_drive")
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+   

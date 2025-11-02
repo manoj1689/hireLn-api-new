@@ -1,93 +1,136 @@
-from fastapi import APIRouter, HTTPException, status, Query
-from typing import Optional
+import json
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from typing import Optional, Union
 from database import get_db
-from models.schemas import InterviewJoinResponse, InterviewResponse, InterviewStatus
+from models.schemas import InterviewJoinResponse, InterviewResponse, InterviewStatus, ScheduleInterviewResponse, UserResponse
+from auth.dependencies import get_user_or_interview_auth
 from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+
+# ------------------------------------------------------
+# ✅ JOIN INTERVIEW (with auth)
+# ------------------------------------------------------
 @router.get("/join", response_model=InterviewJoinResponse)
 async def join_interview(
-    interview_id: str = Query(..., description="Interview ID"),
-    token: Optional[str] = Query(None, description="Join token")
+    interview_id: str,
+    db=Depends(get_db),
+    auth_data: Union[UserResponse, dict] = Depends(get_user_or_interview_auth),
 ):
-    """Join an interview using interview ID and optional token."""
-    db = get_db()
-    
+    """Join an interview using authentication header (Bearer or X-Interview-Token)."""
+
     try:
-        # Fetch interview details
-        interview = await db.interview.find_unique(where={"id": interview_id})
+        # ✅ Access control
+        where_clause = {"id": interview_id}
+        if isinstance(auth_data, UserResponse):
+            where_clause["scheduledById"] = auth_data.id
+        elif isinstance(auth_data, dict):
+            allowed_id = auth_data.get("interviewId")
+            if allowed_id and allowed_id != interview_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You are not authorized to access this interview",
+                )
+
+        # Fetch interview + related data
+        interview = await db.interview.find_unique(
+            where=where_clause,
+            include={"candidate": True, "application": True, "job": True},
+        )
 
         if not interview:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Interview not found"
+                detail="Interview not found",
             )
 
-        # Validate token if required
-        if interview.joinToken and token != interview.joinToken:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or missing join token"
-            )
-
-        # Token expiry check
-        if interview.tokenExpiry:
-            current_time = datetime.now(timezone.utc)
-            token_expiry = interview.tokenExpiry
-
-            if token_expiry.tzinfo is None:
-                token_expiry = token_expiry.replace(tzinfo=timezone.utc)
-
-            if current_time > token_expiry:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Join token has expired"
-                )
-
-        # Check interview status
+        # Prevent joining if interview is cancelled/completed
         if interview.status in [InterviewStatus.CANCELLED, InterviewStatus.COMPLETED]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Interview is {interview.status.lower()}"
+                detail=f"Interview is {interview.status.lower()}",
             )
 
-        # Mark as joined if scheduled
+        # Auto-update to JOINED if scheduled
         if interview.status == InterviewStatus.SCHEDULED:
             await db.interview.update(
                 where={"id": interview_id},
-                data={"status": InterviewStatus.JOINED}
+                data={"status": InterviewStatus.JOINED},
             )
 
-        # Parse interviewers safely
+        # Candidate, Application, Job fallback-safe handling
+        candidate = getattr(interview, "candidate", None)
+        application = getattr(interview, "application", None)
+        job = getattr(interview, "job", None)
+
+        # Parse interviewers
         interviewers = []
-        if interview.interviewers:
-            import json
-            try:
-                interviewers = json.loads(interview.interviewers)
-            except Exception:
-                interviewers = []
+        try:
+            if interview.interviewers:
+                if isinstance(interview.interviewers, str):
+                    interviewers = json.loads(interview.interviewers)
+                elif isinstance(interview.interviewers, list):
+                    interviewers = interview.interviewers
+        except Exception:
+            interviewers = []
 
-        # Generate frontend redirect URL
-        redirect_url = f"/ai-interview-round?interview_id={interview_id}&token={token}"
-
-        # Return clean response
-        return InterviewJoinResponse(
+        # Build interview response
+        interview_response = ScheduleInterviewResponse(
             id=interview.id,
+            candidateId=candidate.id if candidate else "unknown",
+            candidateName=candidate.name if candidate else "Unknown Candidate",
+            candidateEmail=candidate.email if candidate else "N/A",
+            applicationId=application.id if application else None,
+            jobId=application.jobId if application else None,
+            jobTitle=job.title if job else "N/A",
             interviewType=interview.type,
             status=InterviewStatus.JOINED,
             scheduledAt=interview.scheduledAt,
             duration=interview.duration,
             timezone=interview.timezone,
+            interviewers=interviewers,
             meetingLink=interview.meetingLink,
             location=interview.location,
-            interviewers=interviewers,
+            notes=interview.notes,
+            feedback=interview.feedback,
+            invitationSent=interview.invitationSent,
             joinToken=interview.joinToken,
             tokenExpiry=interview.tokenExpiry,
             createdAt=interview.createdAt,
             updatedAt=interview.updatedAt,
+
+            # Candidate Fields
+            candidateEducation=getattr(candidate, "education", None),
+            candidateExperience=getattr(candidate, "experience", None),
+            candidateSkills=getattr(candidate, "technicalSkills", None),
+            candidateLinkedIn=getattr(candidate, "linkedin", None),
+            candidateGitHub=getattr(candidate, "github", None),
+            candidateLocation=getattr(candidate, "location", None),
+
+            # Application
+            coverLetter=getattr(application, "coverLetter", None),
+
+            # Job Fields
+            jobDepartment=getattr(job, "department", None),
+            jobDescription=getattr(job, "description", None),
+            jobResponsibility=getattr(job, "responsibilities", None),
+            jobSkills=getattr(job, "skills", None),
+            jobEducation=getattr(job, "education", None),
+            jobCertificates=getattr(job, "certifications", None),
+            jobPublished=getattr(job, "publishedAt", None),
+        )
+
+        redirect_url = f"/ai-interview-round?interview_id={interview_id}"
+
+        return InterviewJoinResponse(
+            success=True,
+            message="Successfully joined the interview session.",
+            interview=interview_response,
             redirectUrl=redirect_url,
         )
 
@@ -97,126 +140,155 @@ async def join_interview(
         logger.error(f"Error joining interview {interview_id}: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+            detail=f"Internal server error: {str(e)}",
         )
 
+
+# ------------------------------------------------------
+# ✅ CONFIRM INTERVIEW
+# ------------------------------------------------------
 @router.post("/confirm/{interview_id}")
 async def confirm_interview(
     interview_id: str,
     confirmed: bool = True,
-    response_message: Optional[str] = None
+    response_message: Optional[str] = None,
+    db=Depends(get_db),
+    auth_data: Union[UserResponse, dict] = Depends(get_user_or_interview_auth),
 ):
-    """Confirm interview attendance"""
-    db = get_db()
-    
+    """Confirm or cancel interview attendance."""
     try:
-        interview = await db.interview.find_unique(where={"id": interview_id})
-        
+        # Access restriction
+        where_clause = {"id": interview_id}
+        if isinstance(auth_data, UserResponse):
+            where_clause["scheduledById"] = auth_data.id
+        elif isinstance(auth_data, dict):
+            allowed_id = auth_data.get("interviewId")
+            if allowed_id and allowed_id != interview_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Not authorized for this interview",
+                )
+
+        interview = await db.interview.find_unique(where=where_clause)
         if not interview:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Interview not found"
+                detail="Interview not found",
             )
-        
-        # Update interview status based on confirmation
-        new_status = InterviewStatus.CONFIRMED if confirmed else InterviewStatus.CANCELLED
-        
+
+        new_status = (
+            InterviewStatus.CONFIRMED if confirmed else InterviewStatus.CANCELLED
+        )
         update_data = {"status": new_status}
+
         if response_message:
             update_data["notes"] = f"{interview.notes or ''}\n\nCandidate response: {response_message}"
-        
-        await db.interview.update(
-            where={"id": interview_id},
-            data=update_data
-        )
-        
+
+        await db.interview.update(where={"id": interview_id}, data=update_data)
+
         return {
             "success": True,
             "message": f"Interview {'confirmed' if confirmed else 'cancelled'} successfully",
-            "status": new_status
+            "status": new_status,
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error confirming interview {interview_id}: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+            detail=f"Internal server error: {str(e)}",
         )
 
+
+# ------------------------------------------------------
+# ✅ START INTERVIEW
+# ------------------------------------------------------
 @router.put("/{interview_id}/start")
-async def start_interview(interview_id: str):
-    """Start an interview (update status to IN_PROGRESS)"""
-    db = get_db()
-    
+async def start_interview(
+    interview_id: str,
+    db=Depends(get_db),
+    auth_data: Union[UserResponse, dict] = Depends(get_user_or_interview_auth),
+):
+    """Mark interview as IN_PROGRESS."""
     try:
-        interview = await db.interview.find_unique(where={"id": interview_id})
-        
+        # Access control
+        where_clause = {"id": interview_id}
+        if isinstance(auth_data, UserResponse):
+            where_clause["scheduledById"] = auth_data.id
+        elif isinstance(auth_data, dict):
+            allowed_id = auth_data.get("interviewId")
+            if allowed_id and allowed_id != interview_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You are not authorized to start this interview",
+                )
+
+        interview = await db.interview.find_unique(where=where_clause)
         if not interview:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Interview not found"
-            )
-        
-        # Update interview status to IN_PROGRESS with timezone-aware datetime
+            raise HTTPException(status_code=404, detail="Interview not found")
+
         await db.interview.update(
             where={"id": interview_id},
-            data={
-                "status": InterviewStatus.IN_PROGRESS,
-                "startedAt": datetime.now(timezone.utc)
-            }
+            data={"status": InterviewStatus.IN_PROGRESS},
         )
-        
+
         return {
             "success": True,
             "message": "Interview started successfully",
-            "status": InterviewStatus.IN_PROGRESS
+            "status": InterviewStatus.IN_PROGRESS,
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error starting interview {interview_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
-        )
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+
+# ------------------------------------------------------
+# ✅ COMPLETE INTERVIEW
+# ------------------------------------------------------
 @router.put("/{interview_id}/complete")
-async def complete_interview(interview_id: str):
-    """Complete an interview (update status to COMPLETED)"""
-    db = get_db()
-    
+async def complete_interview(
+    interview_id: str,
+    db=Depends(get_db),
+    auth_data: Union[UserResponse, dict] = Depends(get_user_or_interview_auth),
+):
+    """Mark interview as COMPLETED."""
     try:
-        interview = await db.interview.find_unique(where={"id": interview_id})
-        
+        where_clause = {"id": interview_id}
+        if isinstance(auth_data, UserResponse):
+            where_clause["scheduledById"] = auth_data.id
+        elif isinstance(auth_data, dict):
+            allowed_id = auth_data.get("interviewId")
+            if allowed_id and allowed_id != interview_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You are not authorized to complete this interview",
+                )
+
+        interview = await db.interview.find_unique(where=where_clause)
         if not interview:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Interview not found"
-            )
-        
-        # Update interview status to COMPLETED with timezone-aware datetime
+            raise HTTPException(status_code=404, detail="Interview not found")
+
         await db.interview.update(
             where={"id": interview_id},
             data={
                 "status": InterviewStatus.COMPLETED,
-                "completedAt": datetime.now(timezone.utc)
-            }
+                "completedAt": datetime.now(timezone.utc),
+            },
         )
-        
+
         return {
             "success": True,
             "message": "Interview completed successfully",
-            "status": InterviewStatus.COMPLETED
+            "status": InterviewStatus.COMPLETED,
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error completing interview {interview_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
-        )
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

@@ -108,7 +108,8 @@ def process_jd(jd_text: str, semantic_threshold: float = 0.4):
     Process the JD and compare against all resumes using category-wise embeddings.
     JD is categorized and embedded using get_jd_category_embeddings().
     Compares JD embeddings against resume chunk embeddings using cosine similarity.
-    Returns all matched data per category and an overall semantic score per resume.
+    Returns all matched data per category and an overall semantic score per resume,
+    including candidate name and email.
     """
     resumes = list(resumes_collection.find({}))
     if not resumes:
@@ -121,11 +122,13 @@ def process_jd(jd_text: str, semantic_threshold: float = 0.4):
     for resume in resumes:
         r_chunks = resume.get("chunks", [])
         resume_result = {
-        "resume_id": str(resume.get("_id", "")),  # ✅ Add resume ID here
-        "filename": resume.get("filename", "Unnamed Resume"),
-        "categories": {},
-        "overall_semantic_score": 0.0
-    }
+            "resume_id": str(resume.get("_id", "")),
+            "filename": resume.get("filename", "Unnamed Resume"),
+            "name": resume.get("name", "Unknown"),
+            "email": resume.get("email", "Not Provided"),
+            "categories": {},
+            "overall_semantic_score": 0.0
+        }
 
         matched_sims = []  # collect only similarity scores >= threshold
 
@@ -157,6 +160,7 @@ def process_jd(jd_text: str, semantic_threshold: float = 0.4):
 
         results.append(resume_result)
 
+    # 4️⃣ Return structured response
     return {
         "results": results,
         "summary": {

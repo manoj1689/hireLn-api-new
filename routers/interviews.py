@@ -100,7 +100,9 @@ async def schedule_interview(
                 interviewers=interviewers_str_list,
                 interview_id=interview.id,
                 join_token=join_token,
-                frontend_url="http://localhost:3000"
+                # frontend_url="http://localhost:3000"
+                frontend_url="https://hireln.com"
+                
             )
             if email_sent:
                 await db.interview.update(
@@ -160,7 +162,7 @@ async def schedule_interview(
 async def get_interviews(
     candidate_id: Optional[str] = None,
     application_id: Optional[str] = None,
-    job_id: Optional[str] = None,
+    job_id: Optional[str] = None,  # ✅ Added job_id filter
     status: Optional[InterviewStatus] = None,
     type: Optional[InterviewType] = None,
     from_date: Optional[str] = None,
@@ -172,56 +174,70 @@ async def get_interviews(
     """Get interviews created by the current user with optional filtering"""
     db = get_db()
     
-    # Base filter: interviews created by the current user
-    where_clause = {"userId": current_user.id}
+    # ✅ restrict to current user's interviews
+    where_clause = {"scheduledById": current_user.id}
 
     if candidate_id:
         where_clause["candidateId"] = candidate_id
+    
     if application_id:
         where_clause["applicationId"] = application_id
+    
     if job_id:
         where_clause["jobId"] = job_id
+    
     if status:
         where_clause["status"] = status
+    
     if type:
         where_clause["type"] = type
     
-    # Date range filter
+    # Date range filtering
     if from_date:
         try:
             from_datetime = datetime.strptime(from_date, "%Y-%m-%d")
             where_clause["scheduledAt"] = {"gte": from_datetime}
         except ValueError:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid from_date format. Use YYYY-MM-DD.")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid from_date format. Use YYYY-MM-DD."
+            )
+    
     if to_date:
         try:
             to_datetime = datetime.strptime(to_date, "%Y-%m-%d") + timedelta(days=1)
+            
             if "scheduledAt" in where_clause:
                 where_clause["scheduledAt"]["lte"] = to_datetime
             else:
                 where_clause["scheduledAt"] = {"lte": to_datetime}
         except ValueError:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid to_date format. Use YYYY-MM-DD.")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid to_date format. Use YYYY-MM-DD."
+            )
     
-    # Fetch interviews
     interviews = await db.interview.find_many(
         where=where_clause,
         skip=skip,
         take=limit,
         include={
             "candidate": True,
-            "application": True,
+            "application": {
+                "include": {"job": True}
+            },
             "job": True
-        }
+        },
+        
     )
     
     results = []
     for interview in interviews:
         candidate = interview.candidate
         application = interview.application
-        job = interview.job
-
-        # Parse interviewers JSON
+        job = interview.job or (application.job if application else None)
+        job_title = job.title if job else "Unknown Position"
+        
         interviewers = []
         if interview.interviewers:
             try:
@@ -231,7 +247,7 @@ async def get_interviews(
                     interviewers = interview.interviewers
             except (json.JSONDecodeError, TypeError):
                 interviewers = []
-
+        
         results.append({
             "id": interview.id,
             "candidateId": candidate.id,
@@ -272,7 +288,7 @@ async def get_interview(
     # 🔒 Restrict access based on auth type
     if isinstance(auth_data, UserResponse):
         # Logged-in user → restrict to their created interviews
-        where_clause["userId"] = auth_data.id
+        where_clause["scheduledById"] = auth_data.id
     elif isinstance(auth_data, dict):
         # Token dict → check allowed interviewId
         allowed_id = auth_data.get("interviewId")
@@ -689,7 +705,7 @@ async def delete_interview(
 async def auto_evaluate_interview(
     interview_id: str,
     knowledge_level: str = Query("intermediate", description="Knowledge level: beginner, intermediate, advanced"),
-    auth_data: Union[UserResponse, dict] = Depends(get_user_or_interview_auth)
+     current_user: UserResponse = Depends(get_current_user)
 ):
     db = get_db()
 
@@ -697,17 +713,11 @@ async def auto_evaluate_interview(
         # Step 1: Validate interview and auth
         interview = await db.interview.find_unique(
             where={"id": interview_id},
-            include={"user": True}
+            include={"scheduledBy": True, "candidate": True, "job": True}
         )
         if not interview:
             raise HTTPException(status_code=404, detail="Interview not found")
 
-        if isinstance(auth_data, dict) and "interview" in auth_data:
-            if auth_data["interview"].id != interview.id:
-                raise HTTPException(status_code=403, detail="Not authorized")
-        elif isinstance(auth_data, UserResponse):
-            if interview.userId != auth_data.id:
-                raise HTTPException(status_code=403, detail="Not authorized")
 
         # Step 2: Fetch existing evaluations
         questionsEvaluation = await db.evaluation.find_many(where={"interviewId": interview_id})
@@ -734,8 +744,8 @@ async def auto_evaluate_interview(
             if q.factualAccuracy and q.evaluatedAt:
                 evaluations.append({
                     "questionId": q.id,
-                    "questionText": q.questionText,
-                    "answerText": q.answerText,
+                    "questionText": q.question,
+                    "answerText": q.answer,
                     "evaluation": {
                         "factualAccuracy": q.factualAccuracy,
                         "factualAccuracyExplanation": q.factualAccuracyExplanation,
@@ -833,7 +843,7 @@ async def auto_evaluate_interview(
         # Log activity
         if interview.candidate and interview.job:
            await ActivityHelpers.log_ai_evaluation_completed(
-               user_id= interview.userId,
+               user_id= interview.scheduledBy,
                interview_id=interview.id,
                candidate_name=interview.candidate.name,
                job_title=interview.job.title,
@@ -871,12 +881,13 @@ async def send_interview_result_email(
 
     try:
         # Step 1: Fetch interview
-        interview = await db.interview.find_unique(where={"id": interview_id})
+        interview = await db.interview.find_unique(
+            where={"id": interview_id},
+            include={"scheduledBy": True, "candidate": True, "job": True}
+        )
         if not interview:
             raise HTTPException(status_code=404, detail="Interview not found")
-        if interview.userId != current_user.id:
-            raise HTTPException(status_code=403, detail="Not authorized")
-
+       
         # Step 2: Fetch interview result
         result = await db.interviewresult.find_unique(
             where={"interviewId": interview_id}

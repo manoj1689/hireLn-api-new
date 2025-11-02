@@ -105,8 +105,8 @@ class EmailService:
         interviewers: Optional[List[str]] = None,
         interview_id: Optional[str] = None,
         join_token: Optional[str] = None,
-        # frontend_url: str = "https://hireln.com"
-        frontend_url: str = "http://localhost:3000"
+        frontend_url: str = "https://hireln.com"
+        #frontend_url: str = "http://localhost:3000"
     ) -> bool:
         """Send interview invitation email with full interview metadata"""
 

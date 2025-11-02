@@ -65,28 +65,40 @@ def generate_greeting(candidate: dict) -> str:
     
     return response.content.strip(), first_question
 
-# --- Question Generator ---
+
 def generate_question(jd_text: str, last_score: int, last_level: int, history):
+    print("generating question")
+
+    # Decide performance type and difficulty rule
+    if last_score >= 4:
+        performance = "strong"
+        difficulty_change = "+1 (max 5)"
+    elif last_score <= 2:
+        performance = "weak"
+        difficulty_change = "-1 (min 1)"
+    else:
+        performance = "average"
+        difficulty_change = "same"
+
     prompt = ChatPromptTemplate.from_template("""
-    You are a professional interviewer ask question from {jd_text}.
-    The candidate previously got {last_score}/5. The question difficulty level was {last_level}.
+    You are a professional interviewer asking questions related to this job:
+    {jd_text}
 
-    Based on the candidate’s recent performance:
-    - If the last answer was strong, naturally say something encouraging like 
-      “You performed well earlier, let’s try something a bit more advanced.”
-    - If the answer was average, say something neutral like 
-      “Good effort, let’s continue.”
-    - If the answer was weak, say something motivating like 
-      “No worries, let’s go over a simpler question.”
+    The candidate previously scored {last_score}/5.
+    The difficulty level of the last question was {last_level}.
+    The performance was {performance}.
 
-    Then generate a **conversational next question** in the same tone.
+    Based on this:
+    1. Start with a short **natural feedback sentence** (just one line, not generic or repeated — make it sound fresh each time).
+       - If strong → sound impressed or confident.
+       - If average → sound neutral or conversational.
+       - If weak → sound encouraging and supportive.
+    2. Then ask the **next question** naturally in the same conversational tone.
+       - Keep it short and engaging (1–2 sentences max).
+       - Use the job description as context.
+       - Make sure the question difficulty adjusts based on the rule: {difficulty_change}
 
-    Difficulty adjustment:
-    - score ≥ 4 → +1 (max 5)
-    - score ≤ 2 → -1 (min 1)
-    - score = 3 → same.
-
-    History:
+    Previous chat history:
     {history}
     """)
 
@@ -95,10 +107,56 @@ def generate_question(jd_text: str, last_score: int, last_level: int, history):
         "jd_text": jd_text,
         "last_score": last_score,
         "last_level": last_level,
-        "history": history
+        "performance": performance,
+        "difficulty_change": difficulty_change,
+        "history": history,
     })
 
     return response.content.strip()
+
+
+# --- Intent Response ---
+def generate_intent_response(intent: str, question: str, user_input: str = "") -> str:
+    # --- Build dynamic prompt ---
+    if intent == "exit":
+        prompt_text = """
+        The candidate triggered intent: {intent}
+        Question: "{question}"
+        Answer: "{user_input}"
+
+        Generate a short, polite interviewer response indicating the interview has ended 
+        and no further questions will be asked.
+        Limit response to maximum 10 words.
+        """
+    else:
+        prompt_text = """
+        The candidate triggered intent: {intent}
+        Question: "{question}"
+        Answer: "{user_input}"
+
+        Generate a short, polite interviewer response. 
+        Limit response to maximum 10 words.
+        """
+
+    # --- Create and run chain ---
+    prompt = ChatPromptTemplate.from_template(prompt_text)
+    chain = prompt | llm
+    response = chain.invoke({
+        "intent": intent,
+        "question": question,
+        "user_input": user_input
+    }).content.strip()
+
+    # --- Safety: enforce word limit manually too ---
+    words = response.split()
+    if len(words) > 10:
+        response = " ".join(words[:10]).rstrip(",.!") + "."
+
+    if response.startswith('"') and response.endswith('"'):
+        response = response[1:-1].strip()
+
+    return response
+   
 
 # --- Scoring Tool ---
 def score_answer(question: str, answer: str):
@@ -137,43 +195,20 @@ def detect_intent(message: str) -> str:
     - "unclear"
     - "negative"
     - "next"
-    - "exit"                                                                                       
+    - "exit"
 
     Return only the intent.
     """)
-    chain = prompt | llm
-    return chain.invoke({"message": message}).content.strip().lower()
-
-
-# --- Intent Response ---
-# --- Intent Response ---
-def generate_intent_response(intent: str, question: str, user_input: str = "") -> str:
-    # Special handling for exit
-    if intent == "exit":
-        prompt = ChatPromptTemplate.from_template("""
-        The candidate triggered intent: {intent}
-        Question: "{question}"
-        Answer: "{user_input}"
-
-        Generate a short, polite interviewer response indicating that the interview has ended 
-        and no further questions will be asked.
-        """)
-    else:
-        # Default behavior for other intents
-        prompt = ChatPromptTemplate.from_template("""
-        The candidate triggered intent: {intent}
-        Question: "{question}"
-        Answer: "{user_input}"
-
-        Generate a short, polite interviewer response.
-        """)
 
     chain = prompt | llm
-    return chain.invoke({
-        "intent": intent, 
-        "question": question, 
-        "user_input": user_input
-    }).content.strip()
+    response = chain.invoke({"message": message}).content.strip().lower()
+
+    # ✅ Remove surrounding quotes if LLM returns like `"answer"`
+    if response.startswith('"') and response.endswith('"'):
+        response = response[1:-1].strip()
+
+    return response
+
 
 
 

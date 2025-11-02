@@ -165,3 +165,4 @@ async def get_trial_status(current_user: UserResponse = Depends(get_current_user
         "subscriptionActive": user.subscriptionActive,
         "planType": user.planType,
     }
+

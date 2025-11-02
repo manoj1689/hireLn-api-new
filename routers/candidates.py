@@ -19,7 +19,7 @@ async def create_candidate(
     db = get_db()
 
     # ✅ If isGuest is False, require authentication
-    if not candidate_data.isGuest and not current_user:
+    if not candidate_data and not current_user:
         raise HTTPException(
             status_code=http_status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required for non-guest candidates"
@@ -37,7 +37,7 @@ async def create_candidate(
     candidate_dict = candidate_data.dict()
 
     # ✅ Assign userId only if not guest
-    if not candidate_data.isGuest and current_user:
+    if not candidate_data and current_user:
         candidate_dict["userId"] = current_user.id
     else:
         candidate_dict["userId"] = None  # Guests don't have an associated user

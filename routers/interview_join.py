@@ -19,11 +19,11 @@ router = APIRouter()
 @router.get("/join", response_model=InterviewJoinResponse)
 async def join_interview(
     interview_id: str,
-    db=Depends(get_db),
     auth_data: Union[UserResponse, dict] = Depends(get_user_or_interview_auth),
 ):
     """Join an interview using authentication header (Bearer or X-Interview-Token)."""
-
+    
+    db = get_db()
     try:
         # ✅ Access control
         where_clause = {"id": interview_id}
@@ -152,10 +152,11 @@ async def confirm_interview(
     interview_id: str,
     confirmed: bool = True,
     response_message: Optional[str] = None,
-    db=Depends(get_db),
     auth_data: Union[UserResponse, dict] = Depends(get_user_or_interview_auth),
 ):
     """Confirm or cancel interview attendance."""
+   
+    db = get_db()
     try:
         # Access restriction
         where_clause = {"id": interview_id}
@@ -208,10 +209,11 @@ async def confirm_interview(
 @router.put("/{interview_id}/start")
 async def start_interview(
     interview_id: str,
-    db=Depends(get_db),
     auth_data: Union[UserResponse, dict] = Depends(get_user_or_interview_auth),
 ):
     """Mark interview as IN_PROGRESS."""
+  
+    db = get_db()
     try:
         # Access control
         where_clause = {"id": interview_id}
@@ -253,10 +255,11 @@ async def start_interview(
 @router.put("/{interview_id}/complete")
 async def complete_interview(
     interview_id: str,
-    db=Depends(get_db),
     auth_data: Union[UserResponse, dict] = Depends(get_user_or_interview_auth),
 ):
     """Mark interview as COMPLETED."""
+   
+    db = get_db()
     try:
         where_clause = {"id": interview_id}
         if isinstance(auth_data, UserResponse):

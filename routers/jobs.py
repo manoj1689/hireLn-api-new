@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Query
-from typing import List, Optional
+from typing import List, Optional, Union
 from datetime import datetime, timedelta
 
 from pydantic import Json
@@ -11,7 +11,7 @@ from models.schemas import (
     JobStep1Response, JobStep2Response, JobStep3Response, 
     JobCreationCompleteResponse, JobStepperCreate
 )
-from auth.dependencies import get_current_user, get_current_user_optional
+from auth.dependencies import get_current_user, get_current_user_optional, get_user_or_interview_auth
 import uuid
 import json
 
@@ -345,27 +345,67 @@ async def create_job(
 
     return GuestJobResponse(**job.dict())
 
-
 @router.get("/{job_id}", response_model=JobResponse)
 async def get_job(
     job_id: str,
-    current_user: UserResponse = Depends(get_current_user)
+    auth_data: Union[UserResponse, dict] = Depends(get_user_or_interview_auth)
 ):
-    """Get a specific job by ID (only if owned by current user)"""
+    """
+    Get job details
+    - Recruiter must own the job
+    - Candidate via interview link must match job_id
+    """
+    
     db = get_db()
-    
-    job = await db.job.find_unique(
-         where={"id": job_id, "userId": current_user.id}  # ✅ ownership check
-        # where={"id": job_id,}  # ✅ ownership check
-    )
-    
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found or not authorized"
+
+    # 🎯 Case 1: Interview link access (dict)
+    if isinstance(auth_data, dict):
+        job = await db.job.find_unique(where={"id": job_id})
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        # ✅ Allow candidate via token — no ownership check
+        return JobResponse(**job.dict())
+
+    # 🎯 Case 2: Recruiter login (UserResponse)
+    if isinstance(auth_data, UserResponse):
+        job = await db.job.find_first(
+            where={"id": job_id, "userId": auth_data.id}
         )
+        if not job:
+            raise HTTPException(
+                status_code=403,
+                detail="Unauthorized — you do not own this job"
+            )
+
+        # ✅ Recruiter who owns job
+        return JobResponse(**job.dict())
+
+    # 🚫 Fallback (should not happen)
+    raise HTTPException(status_code=403, detail="Unauthorized access")
+
+
+
+# @router.get("/{job_id}", response_model=JobResponse)
+# async def get_job(
+#     job_id: str,
+#     # current_user: UserResponse = Depends(get_current_user)
+# ):
+#     """Get a specific job by ID (only if owned by current user)"""
+#     db = get_db()
     
-    return JobResponse(**job.dict()) 
+#     job = await db.job.find_unique(
+#         #  where={"id": job_id, "userId": current_user.id}  # ✅ ownership check
+#          where={"id": job_id,}  # ✅ ownership check
+#     )
+    
+#     if not job:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail="Job not found or not authorized"
+#         )
+    
+#     return JobResponse(**job.dict()) 
 
 
 @router.put("/{job_id}", response_model=JobResponse)

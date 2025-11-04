@@ -60,8 +60,8 @@ class EmailService:
         job_id:str,
         application_title: str,
         join_token:str,
-        # frontend_url: str = "https://hireln.com" 
-        frontend_url: str = "http://localhost:3000"  
+        frontend_url: str = "https://hireln.com" 
+        # frontend_url: str = "http://localhost:3000"  
     ) -> bool:
         """
         Send an ACCEPT/REJECT invitation email with a link.
@@ -70,24 +70,72 @@ class EmailService:
         invitation_link = f"{frontend_url}/ai-interview-accept?application_id={application_id}&job_id={job_id}&token={join_token}"
 
         body = f"""
-        Dear {candidate_name},
+            Hi {candidate_name},
 
-        Your application for {application_title} has been shortlisted. 
-        Please click the link below to confirm your attendance:
+            Congratulations! Your application for the position of {application_title} has been shortlisted.
 
-        {invitation_link}
+            Please use the link below to confirm your participation in the interview process:
 
-        Best regards,
-        Hiring Team
-        """
-        
+            {invitation_link}
+
+            If you are unable to attend or have any schedule constraints, feel free to write back so we can reschedule.
+
+            We look forward to speaking with you.
+
+            Best Regards,  
+            Hiring Team
+            """
+
         html_body = f"""
-        <p>Dear {candidate_name},</p>
-        <p>Your application for <strong>{application_title}</strong> has been shortlisted.</p>
-        <p>Please click the link below to confirm your attendance:</p>
-        <p><a href="{invitation_link}" target="_blank">Accept or Reject Invitation</a></p>
-        <p>Best regards,<br>Hiring Team</p>
-        """
+            <body style="font-family:Arial,sans-serif; background:#ffffff; padding:20; margin:0;">
+            <div style="max-width:600px; margin:auto; background:#ffffff; border-radius:8px; border:1px solid #e5e7eb;">
+                
+                <!-- Header -->
+                <div style="background: linear-gradient(to right, #38BDF8, #F472B6); padding:18px; text-align:center; color:#fff;">
+                <h2 style="margin:0; font-size:20px;">Interview Invitation – {application_title}</h2>
+                </div>
+
+                <!-- Body Content -->
+                <div style="padding:24px; color:#374151; font-size:15px; line-height:1.6;">
+                <p>Hi {candidate_name},</p>
+
+                <p>
+                    Congratulations! We are pleased to inform you that you have been 
+                    shortlisted for the <strong>{application_title}</strong> position.
+                </p>
+
+                <p>
+                    Please use the link below to <strong>accept or decline</strong> the interview invitation:
+                </p>
+
+                <!-- ✅ Clickable Link Instead of Button -->
+                <p style="margin:16px 0; font-size:15px;">
+                    <a href="{invitation_link}" target="_blank" 
+                    style="color:#2563eb; text-decoration:underline; font-weight:bold;">
+                    Click here to Accept or Reject Interview Invitation
+                    </a>
+                </p>
+
+                <p>
+                    If you have any questions or need to request a different interview time, 
+                    you may reply directly to this email.
+                </p>
+
+                <p>We look forward to your response.</p>
+
+                <p>Best regards,<br><strong>Hiring Team</strong></p>
+                </div>
+
+                <!-- Footer -->
+                <div style="background:#f3f4f6; padding:12px; text-align:center; font-size:12px; color:#6b7280;">
+                <p style="margin:0;">This is an automated email. Do not share your invite link.</p>
+                </div>
+
+            </div>
+            </body>
+
+            """
+
 
         return self.send_email(candidate_email, subject, body, html_body)
 
@@ -106,7 +154,7 @@ class EmailService:
         interview_id: Optional[str] = None,
         join_token: Optional[str] = None,
         frontend_url: str = "https://hireln.com"
-        #frontend_url: str = "http://localhost:3000"
+        # frontend_url: str = "http://localhost:3000"
     ) -> bool:
         """Send interview invitation email with full interview metadata"""
 
@@ -216,33 +264,66 @@ class EmailService:
 </style>
 
     </head>
-    <body>
-    <div class="container">
-        <div class="header">
-        <h2>You're Invited: Interview for {job_title}</h2>
+        <body style="font-family: Arial, sans-serif; background-color:#f6f9fc; margin:0; padding:0;">
+        <div style="max-width:600px; margin:auto; background:#ffffff; border-radius:8px; overflow:hidden; border:1px solid #e5e7eb;">
+            
+            <!-- Header -->
+            <div style="background:#2563eb; padding:20px; text-align:center; color:#ffffff;">
+            <h2 style="margin:0; font-size:22px;">Interview Invitation – {job_title}</h2>
+            </div>
+
+            <!-- Body -->
+            <div style="padding:25px; color:#374151;">
+            <p style="font-size:16px;">Hi {candidate_name},</p>
+
+            <p style="font-size:15px; line-height:1.6;">
+                Congratulations! Based on your application, we are pleased to invite you to the interview process for the
+                <strong>{job_title}</strong> role.
+            </p>
+
+            <p style="font-size:15px; line-height:1.6;">Below are the interview details:</p>
+
+            <!-- Interview Details Box -->
+            <div style="background:#f9fafb; padding:15px; border-radius:6px; border:1px solid #e5e7eb; font-size:14px; line-height:1.7;">
+                <p><strong>Date:</strong> {interview_date}</p>
+                <p><strong>Time:</strong> {interview_time}</p>
+                <p><strong>Duration:</strong> {duration} minutes</p>
+                <p><strong>Format:</strong> {interview_type}</p>
+                {f'<p><strong>Location:</strong> {location}</p>' if location else ''}
+                {f'<p><strong>Interviewers:</strong> {", ".join(interviewers)}</p>' if interviewers else ''}
+                <p><strong>Interview ID:</strong> {interview_id or 'N/A'}</p>
+            </div>
+
+            <!-- CTA Button -->
+            {f'''
+            <div style="text-align:center; margin:25px 0;">
+                <a href="{join_url}" 
+                style="background:#2563eb; color:white; padding:12px 25px; text-decoration:none; font-size:15px; border-radius:6px; display:inline-block;">
+                Join Interview
+                </a>
+            </div>
+            ''' if join_url else ''}
+
+            <p style="font-size:15px; line-height:1.6;">
+                Please confirm your availability by replying to this email. If you have any scheduling concerns or require assistance, feel free to contact us.
+            </p>
+
+            <p style="font-size:15px; line-height:1.6;">
+                We look forward to speaking with you!
+            </p>
+            </div>
+
+            <!-- Footer -->
+            <div style="background:#f3f4f6; padding:15px; text-align:center; font-size:13px; color:#6b7280;">
+            <p style="margin:0;">Best regards,<br><strong>Hiring Team</strong></p>
+            <p style="margin-top:8px; font-size:12px; color:#9ca3af;">
+                This is an automated email. Please do not share your interview link with anyone.
+            </p>
+            </div>
+
         </div>
-        <div class="content">
-        <p>Hello {candidate_name},</p>
-        <p>We are pleased to invite you to an interview for the <strong>{job_title}</strong> role.</p>
-        <div class="details">
-            <p><strong>Date:</strong> {interview_date}</p>
-            <p><strong>Time:</strong> {interview_time}</p>
-            <p><strong>Duration:</strong> {duration} minutes</p>
-            <p><strong>Type:</strong> {interview_type}</p>
-            {f'<p><strong>Location:</strong> {location}</p>' if location else ''}
-            {f'<p><strong>Interviewers:</strong> {", ".join(interviewers)}</p>' if interviewers else ''}
-            <p><strong>Interview ID:</strong> {interview_id or 'N/A'}</p>
-        </div>
-        <div class="button-wrapper">
-            {f'<a href="{join_url}" class="button">Join Interview</a>' if join_url else ''}
-        </div>
-        <p>Please confirm your availability by replying to this email.</p>
-        </div>
-        <div class="footer">
-        <p>Best regards,<br>Hiring Team</p>
-        </div>
-    </div>
-    </body>
+        </body>
+
     </html>
     """
 

@@ -103,26 +103,27 @@ def get_jd_category_embeddings(jd_text: str, chunk_size: int = 1000, chunk_overl
     return cat_embeddings
 
 
-def process_jd(jd_text: str, semantic_threshold: float = 0.4):
+def process_jd(jd_text: str, user_id: str, semantic_threshold: float = 0.4):
     """
-    Process the JD and compare against all resumes using category-wise embeddings.
+    Process the JD and compare against resumes uploaded by the given user.
     JD is categorized and embedded using get_jd_category_embeddings().
     Compares JD embeddings against resume chunk embeddings using cosine similarity.
-    Returns all matched data per category and an overall semantic score per resume,
-    including candidate name and email.
+    Returns only unique resumes (one per email) with score > 30%.
     """
-    resumes = list(resumes_collection.find({}))
+    # ✅ Get all resumes of the user
+    resumes = list(resumes_collection.find({"userId": user_id}))
     if not resumes:
-        return {"error": "No resumes found in MongoDB"}
+        return {"error": f"No resumes found for userId: {user_id}"}
 
-    # 1️⃣ Generate category-wise JD embeddings
+    # 1️⃣ Generate JD category embeddings
     jd_cat_emb = get_jd_category_embeddings(jd_text)
-    results = []
+    all_results = []
 
     for resume in resumes:
         r_chunks = resume.get("chunks", [])
         resume_result = {
             "resume_id": str(resume.get("_id", "")),
+            "candidate_id": str(resume.get("candidateId", "")),
             "filename": resume.get("filename", "Unnamed Resume"),
             "name": resume.get("name", "Unknown"),
             "email": resume.get("email", "Not Provided"),
@@ -130,9 +131,9 @@ def process_jd(jd_text: str, semantic_threshold: float = 0.4):
             "overall_semantic_score": 0.0
         }
 
-        matched_sims = []  # collect only similarity scores >= threshold
+        matched_sims = []
 
-        # 2️⃣ Loop through each JD category
+        # 2️⃣ Compare JD chunks vs resume chunks
         for cat, jd_chunks in jd_cat_emb.items():
             cat_matches = []
             for jd_chunk in jd_chunks:
@@ -140,8 +141,6 @@ def process_jd(jd_text: str, semantic_threshold: float = 0.4):
                 for r_chunk in r_chunks:
                     r_emb = np.array(r_chunk["embedding"], dtype=float)
                     sim = cosine_similarity(jd_emb, r_emb)
-
-                    # Only count meaningful matches
                     if sim >= semantic_threshold:
                         matched_sims.append(sim)
                         cat_matches.append({
@@ -149,22 +148,40 @@ def process_jd(jd_text: str, semantic_threshold: float = 0.4):
                             "resume_text": r_chunk["text"],
                             "similarity": round(sim, 4)
                         })
-
-            # Save matches for this category
             resume_result["categories"][cat] = cat_matches
 
-        # 3️⃣ Compute average similarity across matched scores only
+        # 3️⃣ Compute average similarity
         resume_result["overall_semantic_score"] = round(
             float(np.mean(matched_sims)) * 100, 2
         ) if matched_sims else 0.0
 
-        results.append(resume_result)
+        all_results.append(resume_result)
 
-    # 4️⃣ Return structured response
+    # 4️⃣ Keep only highest-score resume per email
+    unique_results = {}
+    for res in all_results:
+        email = res["email"].lower().strip()
+        if (
+            email not in unique_results
+            or res["overall_semantic_score"] > unique_results[email]["overall_semantic_score"]
+        ):
+            unique_results[email] = res
+
+    # 5️⃣ Filter resumes with score > 30%
+    filtered_results = [
+        res for res in unique_results.values()
+        if res["overall_semantic_score"] > 30.0
+    ]
+
+    # 6️⃣ Sort by score (descending)
+    filtered_results.sort(key=lambda x: x["overall_semantic_score"], reverse=True)
+
     return {
-        "results": results,
+        "results": filtered_results,
         "summary": {
             "total_resumes": len(resumes),
+            "unique_emails": len(unique_results),
+            "qualified_resumes": len(filtered_results),
             "semantic_threshold": semantic_threshold
         }
     }

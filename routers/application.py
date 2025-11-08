@@ -41,8 +41,9 @@ async def create_application(
     
     # Generate token and expiration
     join_token = generate_interview_token()
-    token_expiry = generate_token_expiry(72)  # Assuming 72 hours or your desired logic
-    
+    # token_expiry = generate_token_expiry(72)  # Assuming 72 hours or your desired logic
+    token_expiry = generate_token_expiry(hours=1)
+
     # Prepare application data
     app_data = application_data.dict()
     app_data["userId"] = current_user.id
@@ -52,6 +53,12 @@ async def create_application(
 
     # Create application in DB
     application = await db.application.create(data=app_data)
+    
+    # ✅ Update candidate status
+    await db.candidate.update(
+        where={"id": application.candidateId},
+        data={"applicationStatus": "INVITED"}
+    )
 
     # Fetch job & candidate details
     job_details = await db.job.find_unique(where={"id": application.jobId})

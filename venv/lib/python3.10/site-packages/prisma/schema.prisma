@@ -361,8 +361,6 @@ model Job {
 model Candidate {
   id                String   @id @default(cuid())
   email             String   @unique
-  resumeId          String?
-  resumeName        String?
   name              String
   phone             String?
 

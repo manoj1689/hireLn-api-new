@@ -66,7 +66,7 @@ class EmailService:
         """
         Send an ACCEPT/REJECT invitation email with a link.
         """
-        subject = f"Invitation to Interview for {application_title}"
+        subject = f"Invitation Accept/Reject to Interview for {application_title}"
         invitation_link = f"{frontend_url}/ai-interview-accept?application_id={application_id}&job_id={job_id}&token={join_token}"
 
         body = f"""
@@ -148,6 +148,7 @@ class EmailService:
         interview_type: str,
         scheduled_at: datetime,
         duration: int,
+        time_zone:str,
         meeting_link: Optional[str] = None,
         location: Optional[str] = None,
         interviewers: Optional[List[str]] = None,
@@ -287,6 +288,7 @@ class EmailService:
             <div style="background:#f9fafb; padding:15px; border-radius:6px; border:1px solid #e5e7eb; font-size:14px; line-height:1.7;">
                 <p><strong>Date:</strong> {interview_date}</p>
                 <p><strong>Time:</strong> {interview_time}</p>
+                <p><strong>Time Zone:</strong> {time_zone}</p>
                 <p><strong>Duration:</strong> {duration} minutes</p>
                 <p><strong>Format:</strong> {interview_type}</p>
                 {f'<p><strong>Location:</strong> {location}</p>' if location else ''}

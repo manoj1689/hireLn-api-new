@@ -66,17 +66,28 @@ def get_embedding(text: str, model: str = "text-embedding-3-large"):
     return response.data[0].embedding
 
 
+from datetime import datetime
 
-def save_resume_with_embeddings(filename: str, resume_text: str):
+def save_resume_with_embeddings(
+    filename: str,
+    resume_text: str,
+    user_id: str,
+    candidate_id: str
+):
     """
-    Save resume with embeddings, extracted name/email, and metadata into MongoDB.
+    Save resume with embeddings, extracted name/email, userId, and candidateId into MongoDB.
+    Prevents duplicate resume uploads for the same candidate and filename.
     """
-    # 1️⃣ Check if resume with the same filename already exists
-    existing_resume = resumes_collection.find_one({"filename": filename})
+
+    # 1️⃣ Check if resume with the same filename already exists for this candidate
+    existing_resume = resumes_collection.find_one({
+        "filename": filename,
+        "candidateId": candidate_id
+    })
     if existing_resume:
-        raise ValueError(f"Resume '{filename}' already exists in the database.")
+        raise ValueError(f"Resume '{filename}' already exists for this candidate.")
 
-    # 2️⃣ Extract candidate info
+    # 2️⃣ Extract candidate info (optional)
     candidate_info = extract_name_email(resume_text)
     name = candidate_info.get("name")
     email = candidate_info.get("email")
@@ -99,13 +110,15 @@ def save_resume_with_embeddings(filename: str, resume_text: str):
         "uploaded_at": datetime.utcnow(),
         "name": name,
         "email": email,
+        "userId": user_id,
+        "candidateId": candidate_id,
         "chunks": chunk_data
     }
 
     # 6️⃣ Insert into MongoDB
     result = resumes_collection.insert_one(resume_doc)
 
-    print(f"✅ Saved '{filename}' with {len(chunk_data)} chunks. Name: {name}, Email: {email}")
+    print(f"✅ Saved '{filename}' for candidate {candidate_id} with {len(chunk_data)} chunks. Name: {name}, Email: {email}")
     return result.inserted_id
 
 

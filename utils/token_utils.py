@@ -16,17 +16,20 @@ def generate_interview_token(length: int = 32) -> str:
     alphabet = string.ascii_letters + string.digits
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 
-def generate_token_expiry(hours: int = 48) -> datetime:
+
+def generate_token_expiry(hours: int = 0, minutes: int = 0) -> datetime:
     """
     Generate token expiry time.
-    
+
     Args:
         hours: Number of hours from now when token should expire
-        
+        minutes: Number of minutes from now when token should expire
+
     Returns:
         Timezone-aware datetime object for token expiry
     """
-    return datetime.now(timezone.utc) + timedelta(hours=hours)
+    return datetime.now(timezone.utc) + timedelta(hours=hours, minutes=minutes)
+
 
 def is_token_expired(expiry_time: Optional[datetime]) -> bool:
     """

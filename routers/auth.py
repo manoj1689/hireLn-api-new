@@ -7,7 +7,7 @@ from auth.dependencies import get_current_user
 from auth.jwt_handler import create_access_token
 from database import get_db
 from models.schemas import (
-   TokenResponse, UserRequest, UserResponse
+   GuestRequest, TokenResponse, UserRequest, UserResponse
 )
 from service.activity_service import ActivityHelpers
 from service.notification_service import FCMService
@@ -122,6 +122,77 @@ async def login_user(user_req: UserRequest):
             content={
                 "success": False,
                 "detail": f"Unexpected login error: {str(e)}",
+            },
+        )
+@router.post("/guest-login", response_model=TokenResponse)
+async def guest_login(user_req: GuestRequest):
+    db = get_db()
+
+    try:
+        # ---------------- Validate role ----------------
+        if not user_req.role:
+            raise HTTPException(status_code=400, detail="Role is required in request")
+        role = user_req.role.upper()
+        if role != "GUEST":
+            raise HTTPException(status_code=400, detail="Only GUEST role is allowed here")
+
+        # ---------------- Generate guest identity ----------------
+        guest_email = f"guest_{uuid4().hex[:10]}@example.com"
+        guest_name =  "Guest User"
+        google_id = f"guest_{uuid4()}"
+
+        # ---------------- Create guest user ----------------
+        user_data = {
+            "email": guest_email,
+            "name": guest_name,
+            "avatar": "https://cdn-icons-png.flaticon.com/512/149/149071.png",
+            "role": "GUEST",
+            "googleId": google_id,
+            "accountType": user_req.accountType,
+            "subscriptionActive": user_req.subscriptionActive or False,
+            "trialEndsAt": user_req.trialEndsAt,
+            "createdAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
+        }
+
+        user = await db.user.create(data=user_data)
+
+        # ---------------- Generate JWT ----------------
+        token_expiry = timedelta(hours=12)
+        access_token = create_access_token(data={"sub": user.id}, expires_delta=token_expiry)
+
+        # ---------------- Prepare response ----------------
+        user_resp = UserResponse(
+            id=user.id,
+            email=user.email,
+            name=user.name,
+            avatar=user.avatar,
+            role=user.role,
+            planType=user.accountType,
+            subscriptionActive=user.subscriptionActive,
+            trialEndsAt=user.trialEndsAt,
+            isTrialActive=user.subscriptionActive and (user.trialEndsAt is None or user.trialEndsAt > datetime.utcnow()),
+            registered=False,
+            fcm_token=None,
+            createdAt=user.createdAt,
+            updatedAt=user.updatedAt,
+        )
+
+        return TokenResponse(access_token=access_token, token_type="bearer", user=user_resp)
+
+    except HTTPException as he:
+        return JSONResponse(
+            status_code=he.status_code,
+            content={"success": False, "detail": he.detail},
+        )
+    except Exception as e:
+        import traceback
+        print("🔥 Unexpected guest login error:", traceback.format_exc())
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "success": False,
+                "detail": f"Unexpected guest login error: {str(e)}",
             },
         )
 

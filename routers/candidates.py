@@ -59,7 +59,7 @@ async def create_candidate(
 
     # ✅ Create candidate in DB
     candidate = await db.candidate.create(data=candidate_dict)
-    print("Candidate JSON (after serialization):", json.dumps(candidate_dict, indent=2))
+    #    print("Candidate JSON (after serialization):", json.dumps(candidate_dict, indent=2))
 
     # ✅ Prepare response
     response_data = candidate.dict()

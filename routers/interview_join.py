@@ -103,6 +103,8 @@ async def join_interview(
             tokenExpiry=interview.tokenExpiry,
             createdAt=interview.createdAt,
             updatedAt=interview.updatedAt,
+            startedAt=interview.startedAt,
+            completedAt=interview.completedAt,
 
             # Candidate Fields
             candidateEducation=getattr(candidate, "education", None),
@@ -230,16 +232,20 @@ async def start_interview(
         interview = await db.interview.find_unique(where=where_clause)
         if not interview:
             raise HTTPException(status_code=404, detail="Interview not found")
-
+        # ✅ Set current UTC timestamp when starting
+        now_utc = datetime.now(timezone.utc)
         await db.interview.update(
             where={"id": interview_id},
-            data={"status": InterviewStatus.IN_PROGRESS},
+            data={
+                "status": InterviewStatus.IN_PROGRESS,
+                "startedAt": datetime.now(timezone.utc),
+            },
         )
 
         return {
             "success": True,
             "message": "Interview started successfully",
-            "status": InterviewStatus.IN_PROGRESS,
+            "status": InterviewStatus.IN_PROGRESS
         }
 
     except HTTPException:

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, ValidationError
 from typing import List, Dict, Any, Optional, Union
 from mongoDb.jd_parser import process_jd
 from mongoDb.resume_embeddings import get_resume_text_by_id, read_resume, save_resume_with_embeddings
-from service.candidate_service import create_candidate_from_parsed_data
+from service.candidate_service import create_or_update_candidate_from_parsed_data
 from utils.openai_client import create_openai_chat
 from dotenv import load_dotenv
 import json
@@ -198,96 +198,6 @@ def extract_resume_data(text: str) -> CandidateCreate:
         logger.error("OpenAI API call failed", exc_info=True)
         raise HTTPException(status_code=500, detail=f"OpenAI API failed: {str(e)}")
 
-# --- process_resume_file function ---
-async def process_resume_file(
-    temp_path: Path,
-    file_name: str,
-    current_user: UserResponse,
-    db: Prisma,
-    resume_id: str = None  # require resume_id
-):
-    if not resume_id:
-        raise ValueError(f"Missing resume_id for file '{file_name}'")
-
-    try:
-        # 1️⃣ Read PDF
-        with open(temp_path, "rb") as f:
-            pdf_bytes = f.read()
-
-        # 2️⃣ Extract and clean text
-        raw_text = extract_text_with_pymupdf(pdf_bytes)
-        cleaned_text = clean_extracted_text(raw_text)
-
-        # 3️⃣ Parse resume data
-        parsed_data = extract_resume_data(cleaned_text)
-
-        # 4️⃣ Create candidate record with resume_id
-        success, message = await create_candidate_from_parsed_data(
-            parsed_data,
-            current_user,
-            db,
-            resume_id=resume_id,
-            resume_name=file_name
-            
-        )
-
-        logger.info(f"Processed {file_name}: success={success}, message={message}")
-        return {"file": file_name, "success": success, "message": message, "resume_id": resume_id}
-
-    except Exception as e:
-        logger.warning(f"Failed to process {file_name}: {e}")
-        return {"file": file_name, "success": False, "message": str(e), "resume_id": resume_id}
-
-
-# --- create-candidate_resume_upload endpoint ---
-@router.post("/create-candidate")
-async def create_candidate(
-    file: UploadFile = File(..., description="Upload a PDF resume to create candidate"),
-    current_user: UserResponse = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
-):
-    """
-    Upload a single resume, parse it, create a candidate record and return result
-    """
-    resume_id = str(uuid.uuid4())
-    temp_path = None
-    file_name = file.filename
-
-    try:
-        # ✅ Save uploaded PDF temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-            temp_file.write(await file.read())
-            temp_path = Path(temp_file.name)
-
-        # ✅ Read and clean resume text
-        raw_text = read_resume(temp_path)
-        cleaned_text = clean_extracted_text(raw_text)
-
-        # ✅ Parse structured data from resume
-        parsed_data = extract_resume_data(cleaned_text)
-
-        # ✅ Save candidate to DB
-        success, message, candidate_info = await create_candidate_from_parsed_data(
-            parsed_data,
-            current_user,
-            db,
-            resume_id=resume_id,
-            resume_name=file_name
-        )
-
-        return {
-            "status": success,
-            "message": message,
-            "candidate": candidate_info
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create candidate: {str(e)}")
-
-    finally:
-        # ✅ Cleanup temp file
-        if temp_path and temp_path.exists():
-            temp_path.unlink()
 
             
 # --- parse_resumes_upload endpoint ---
@@ -298,14 +208,16 @@ async def parse_resumes_upload(
     db: Prisma = Depends(get_db)
 ):
     """
-    Upload multiple resumes, save to MongoDB (get _id), process each file (embedding/chunking),
-    and return summary with resume name and resume_id.
+    Upload multiple resumes, create or update candidates in Postgres,
+    save each resume to MongoDB with userId and candidateId,
+    and return upload summary.
     """
     creation_summary = []
 
     for file in files:
         file_name = file.filename
         temp_path = None
+
         try:
             # 1️⃣ Save uploaded file temporarily
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
@@ -314,18 +226,43 @@ async def parse_resumes_upload(
 
             # 2️⃣ Read resume text
             text = read_resume(temp_path)
-            
 
-            # 3️⃣ Save resume to MongoDB and get inserted ID
-            resume_id = save_resume_with_embeddings(file_name, text)
+            # 3️⃣ Extract parsed data (from AI or parser)
+            parsed_data = extract_resume_data(text)
 
-          
+            # 4️⃣ Create or update candidate in PostgreSQL
+            success, message, candidate_info = await create_or_update_candidate_from_parsed_data(
+                parsed_data,
+                current_user,
+                db
+            )
 
-            # 5️⃣ Add summary entry (use result from process_resume_file)
+            if not success or not candidate_info:
+                creation_summary.append({
+                    "resume_name": file_name,
+                    "success": False,
+                    "message": message
+                })
+                continue
+
+            candidate_id = candidate_info["candidate_id"]
+
+            # 5️⃣ Save resume to MongoDB with userId & candidateId
+            resume_id = save_resume_with_embeddings(
+                file_name,
+                text,
+                user_id=current_user.id,
+                candidate_id=candidate_id
+            )
+
+            # 6️⃣ Add summary entry
             creation_summary.append({
                 "resume_name": file_name,
-                "resume_id": str(resume_id)
-               
+                "resume_id": str(resume_id),
+                "candidate_id": candidate_id,
+                "candidate_name": candidate_info["candidate_name"],
+                "success": True,
+                "message": "Resume uploaded and candidate processed successfully"
             })
 
         except Exception as e:
@@ -336,11 +273,52 @@ async def parse_resumes_upload(
             })
 
         finally:
-            # 6️⃣ Cleanup temp file
+            # 🧹 Cleanup temp file
             if temp_path and temp_path.exists():
                 temp_path.unlink(missing_ok=True)
 
     return {"summary": creation_summary}
+
+#-------------------------------
+# Read Resume and show Candidate
+#-------------------------------
+
+@router.post("/process-resume/{resume_id}")
+async def process_resume_by_id(
+    resume_id: str,
+    current_user: UserResponse = Depends(get_current_user),
+    db: Prisma = Depends(get_db)
+):
+    try:
+        resume_data = get_resume_text_by_id(resume_id)
+        if not resume_data:
+            raise HTTPException(status_code=404, detail="Resume not found")
+
+        resume_text = resume_data.get("text", "")
+        resume_file_name = resume_data.get("filename", "unknown")
+
+        parsed_data = extract_resume_data(resume_text)
+
+        success, message, candidate_info = await create_or_update_candidate_from_parsed_data(
+            parsed_data,
+            current_user,
+            db,
+            resume_id=resume_id,
+            resume_name=resume_file_name
+        )
+
+        return {
+            "status": success,
+            "message": message,
+            "candidate": candidate_info
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 
 @router.get("/match/{job_id}", response_model=Any)
 async def get_matched_candidates(
@@ -364,20 +342,24 @@ async def get_matched_candidates(
         f"Description: {job.description}\n"
     )
 
-    # Call the JD processor for comparison
-    match_results = process_jd(jd_text)
+    # ✅ Process JD only for current user’s resumes
+    match_results = process_jd(jd_text, user_id=current_user.id)
+    
+    # ✅ Handle empty or error case
+    if "error" in match_results:
+        raise HTTPException(status_code=404, detail=match_results["error"])
 
-    # Optionally sort resumes by score
+    if not match_results.get("results"):
+        raise HTTPException(status_code=404, detail="No matched resumes found.")
+
+    # Sort by score and paginate
     sorted_resumes = sorted(
         match_results["results"],
         key=lambda x: x["overall_semantic_score"],
         reverse=True
     )
 
-    # Limit the results
-    top_resumes = sorted_resumes[skip : skip + limit]
-
-    return top_resumes
+    return sorted_resumes[skip : skip + limit]
 
 
 @router.post("/process-resume/preview-candidate/{resume_id}")
@@ -418,28 +400,46 @@ async def preview_candidate_from_resume(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/process-resume/{resume_id}")
-async def process_resume_by_id(
-    resume_id: str,
+
+#------------------------------------
+# Single Resume Upload For Guest User
+#------------------------------------
+
+
+# --- create-candidate_resume_upload endpoint ---
+@router.post("/create-candidate")
+async def create_candidate(
+    file: UploadFile = File(..., description="Upload a PDF resume to create candidate"),
     current_user: UserResponse = Depends(get_current_user),
     db: Prisma = Depends(get_db)
 ):
+    """
+    Upload a single resume, parse it, create a candidate record and return result
+    """
+    resume_id = str(uuid.uuid4())
+    temp_path = None
+    file_name = file.filename
+
     try:
-        resume_data = get_resume_text_by_id(resume_id)
-        if not resume_data:
-            raise HTTPException(status_code=404, detail="Resume not found")
+        # ✅ Save uploaded PDF temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+            temp_file.write(await file.read())
+            temp_path = Path(temp_file.name)
 
-        resume_text = resume_data.get("text", "")
-        resume_file_name = resume_data.get("filename", "unknown")
+        # ✅ Read and clean resume text
+        raw_text = read_resume(temp_path)
+        cleaned_text = clean_extracted_text(raw_text)
 
-        parsed_data = extract_resume_data(resume_text)
+        # ✅ Parse structured data from resume
+        parsed_data = extract_resume_data(cleaned_text)
 
-        success, message, candidate_info = await create_candidate_from_parsed_data(
+        # ✅ Save candidate to DB
+        success, message, candidate_info = await create_or_update_candidate_from_parsed_data(
             parsed_data,
             current_user,
             db,
             resume_id=resume_id,
-            resume_name=resume_file_name
+            resume_name=file_name
         )
 
         return {
@@ -448,10 +448,59 @@ async def process_resume_by_id(
             "candidate": candidate_info
         }
 
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to create candidate: {str(e)}")
+
+    finally:
+        # ✅ Cleanup temp file
+        if temp_path and temp_path.exists():
+            temp_path.unlink()
+
+
+#--------------------------------------------
+#          Google Drive Functionality
+#--------------------------------------------
+# --- process_resume_file function ---
+async def process_resume_file(
+    temp_path: Path,
+    file_name: str,
+    current_user: UserResponse,
+    db: Prisma,
+    resume_id: str = None  # require resume_id
+):
+    if not resume_id:
+        raise ValueError(f"Missing resume_id for file '{file_name}'")
+
+    try:
+        # 1️⃣ Read PDF
+        with open(temp_path, "rb") as f:
+            pdf_bytes = f.read()
+
+        # 2️⃣ Extract and clean text
+        raw_text = extract_text_with_pymupdf(pdf_bytes)
+        cleaned_text = clean_extracted_text(raw_text)
+
+        # 3️⃣ Parse resume data
+        parsed_data = extract_resume_data(cleaned_text)
+
+        # 4️⃣ Create candidate record with resume_id
+        success, message = await create_or_update_candidate_from_parsed_data(
+            parsed_data,
+            current_user,
+            db,
+            resume_id=resume_id,
+            resume_name=file_name
+            
+        )
+
+        logger.info(f"Processed {file_name}: success={success}, message={message}")
+        return {"file": file_name, "success": success, "message": message, "resume_id": resume_id}
+
+    except Exception as e:
+        logger.warning(f"Failed to process {file_name}: {e}")
+        return {"file": file_name, "success": False, "message": str(e), "resume_id": resume_id}
+
+
 
 
 

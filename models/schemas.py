@@ -77,6 +77,12 @@ class UserRequest(BaseModel):
     subscriptionActive: Optional[bool] = False
     trialEndsAt: Optional[datetime] = None     # Only for FREE_TRIAL
 
+class GuestRequest(BaseModel):
+    role: str = "GUEST" 
+    accountType: Optional[str] = "FREE_TRIAL"
+    subscriptionActive: Optional[bool] = False
+    trialEndsAt: Optional[datetime] = None
+
 class UserResponse(BaseModel):
     id: str
     googleId: Optional[str] = None
@@ -373,6 +379,8 @@ class ScheduleInterviewResponse(BaseModel):
     tokenExpiry: Optional[datetime] = None
     createdAt: datetime
     updatedAt: datetime
+    startedAt: Optional[datetime] = None   # ✅ make optional
+    completedAt: Optional[datetime] = None
 
     # Candidate Additional Fields
     candidateEducation: Optional[List[CandidateEducation]] = None
@@ -419,6 +427,8 @@ class InterviewResponse(BaseModel):
     tokenExpiry: Optional[datetime] = None
     createdAt: datetime
     updatedAt: datetime
+    startedAt: Optional[datetime] = None   # ✅ make optional
+    completedAt: Optional[datetime] = None
 
    
 

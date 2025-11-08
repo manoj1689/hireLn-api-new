@@ -13,7 +13,6 @@ from datetime import datetime, timedelta
 import pytz
 import json
 from service.email_service import EmailService, email_service
-from utils.openai_client import create_openai_chat
 from utils.token_utils import generate_interview_token, generate_token_expiry
 import logging
 
@@ -60,7 +59,9 @@ async def schedule_interview(
         )
     
     join_token = generate_interview_token()
-    token_expiry = generate_token_expiry(hours=48)
+    # token_expiry = generate_token_expiry(hours=48)
+    token_expiry = generate_token_expiry(hours=1)
+
     
     # Prepare interview data
     interview_data_dict = {
@@ -95,6 +96,7 @@ async def schedule_interview(
                 interview_type=interview_data.type,
                 scheduled_at=scheduled_datetime,
                 duration=interview_data.duration,
+                time_zone=interview_data.timezone,
                 meeting_link=interview_data.meetingLink,
                 location=interview.location,
                 interviewers=interviewers_str_list,
@@ -151,7 +153,9 @@ async def schedule_interview(
         "joinToken": interview.joinToken,
         "tokenExpiry": interview.tokenExpiry,
         "createdAt": interview.createdAt,
-        "updatedAt": interview.updatedAt
+        "updatedAt": interview.updatedAt,
+        "startedAt":interview.startedAt,
+        "completedAt":interview.completedAt
     }
 
     return InterviewResponse(**response)
@@ -270,7 +274,9 @@ async def get_interviews(
             "joinToken": interview.joinToken,
             "tokenExpiry": interview.tokenExpiry,
             "createdAt": interview.createdAt,
-            "updatedAt": interview.updatedAt
+            "updatedAt": interview.updatedAt,
+            "startedAt":interview.startedAt,
+            "completedAt":interview.completedAt
         })
     
     return [InterviewResponse(**result) for result in results]
@@ -350,7 +356,9 @@ async def get_interview(
         "joinToken": interview.joinToken,
         "tokenExpiry": interview.tokenExpiry,
         "createdAt": interview.createdAt,
-        "updatedAt": interview.updatedAt
+        "updatedAt": interview.updatedAt,
+        "startedAt":interview.startedAt,
+        "completedAt":interview.completedAt
     }
 
     return InterviewResponse(**response)
@@ -453,7 +461,9 @@ async def reschedule_interview(
         "joinToken": updated_interview.joinToken,
         "tokenExpiry": updated_interview.tokenExpiry,
         "createdAt": updated_interview.createdAt,
-        "updatedAt": updated_interview.updatedAt
+        "updatedAt": updated_interview.updatedAt,
+        "startedAt":interview.startedAt,
+        "completedAt":interview.completedAt
     }
     
     return InterviewResponse(**response)
@@ -560,7 +570,9 @@ async def update_interview_status(
         "joinToken": updated_interview.joinToken,
         "tokenExpiry": updated_interview.tokenExpiry,
         "createdAt": updated_interview.createdAt,
-        "updatedAt": updated_interview.updatedAt
+        "updatedAt": updated_interview.updatedAt,
+        "startedAt":interview.startedAt,
+        "completedAt":interview.completedAt
     }
     
     return InterviewResponse(**response)
@@ -668,7 +680,9 @@ async def submit_interview_feedback(
         "joinToken": updated_interview.joinToken,
         "tokenExpiry": updated_interview.tokenExpiry,
         "createdAt": updated_interview.createdAt,
-        "updatedAt": updated_interview.updatedAt
+        "updatedAt": updated_interview.updatedAt,
+        "startedAt":interview.startedAt,
+        "completedAt":interview.completedAt
     }
     
     return InterviewResponse(**response)
@@ -705,7 +719,7 @@ async def delete_interview(
 async def auto_evaluate_interview(
     interview_id: str,
     knowledge_level: str = Query("intermediate", description="Knowledge level: beginner, intermediate, advanced"),
-     current_user: UserResponse = Depends(get_current_user)
+    current_user: UserResponse = Depends(get_current_user)
 ):
     db = get_db()
 

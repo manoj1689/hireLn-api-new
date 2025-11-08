@@ -151,8 +151,7 @@ async def get_recent_activities(current_user: UserResponse = Depends(get_current
 
     activities = await db.activity.find_many(
         where={"userId": user_id},
-        take=10,
-        order_by={"createdAt": "desc"}
+        
     )
 
     if not activities:
@@ -175,15 +174,20 @@ async def get_department_stats(current_user: UserResponse = Depends(get_current_
     db = get_db()
     user_id = current_user.id
 
-    departments = await db.query_raw(f"""
-        SELECT department, COUNT(*) as job_count
-        FROM Jobs
-        WHERE userId = '{user_id}'
+    departments = await db.query_raw(
+        """
+        SELECT department, COUNT(*) AS job_count
+        FROM "jobs"
+        WHERE "userId" = $1
         GROUP BY department
         ORDER BY job_count DESC
-    """)
+        """,
+        user_id,
+    )
 
     return [{"department": d["department"], "jobCount": d["job_count"]} for d in departments]
+
+
 
 
 def format_time_ago(dt: datetime) -> str:

@@ -345,7 +345,7 @@ async def create_job(
 
     return GuestJobResponse(**job.dict())
 
-@router.get("/{job_id}", response_model=JobResponse)
+@router.get("/invite/{job_id}", response_model=JobResponse)
 async def get_job(
     job_id: str,
     auth_data: Union[UserResponse, dict] = Depends(get_user_or_interview_auth)
@@ -386,26 +386,26 @@ async def get_job(
 
 
 
-# @router.get("/{job_id}", response_model=JobResponse)
-# async def get_job(
-#     job_id: str,
-#     # current_user: UserResponse = Depends(get_current_user)
-# ):
-#     """Get a specific job by ID (only if owned by current user)"""
-#     db = get_db()
+@router.get("/{job_id}", response_model=JobResponse)
+async def get_job(
+    job_id: str,
+    current_user: UserResponse = Depends(get_current_user)
+):
+    """Get a specific job by ID (only if owned by current user)"""
+    db = get_db()
     
-#     job = await db.job.find_unique(
-#         #  where={"id": job_id, "userId": current_user.id}  # ✅ ownership check
-#          where={"id": job_id,}  # ✅ ownership check
-#     )
+    job = await db.job.find_unique(
+        where={"id": job_id, "userId": current_user.id}  # ✅ ownership check
+        #  where={"id": job_id,}  # ✅ ownership check
+    )
     
-#     if not job:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail="Job not found or not authorized"
-#         )
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found or not authorized"
+        )
     
-#     return JobResponse(**job.dict()) 
+    return JobResponse(**job.dict()) 
 
 
 @router.put("/{job_id}", response_model=JobResponse)

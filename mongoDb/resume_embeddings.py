@@ -182,3 +182,36 @@ def extract_name_email(text: str):
         "name": possible_name,
         "email": email
     }
+
+
+
+
+
+def delete_resumes_by_candidate_id(candidate_id: str):
+    """
+    Delete all resume documents belonging to a given candidate from MongoDB.
+
+    Args:
+        candidate_id (str): The candidate ID whose resumes should be deleted.
+
+    Returns:
+        dict: A dictionary with deletion status and message.
+    """
+    # Validate candidate_id
+    if not candidate_id:
+        raise ValueError("candidate_id is required")
+
+    # Delete all resumes linked to this candidate
+    result = resumes_collection.delete_many({"candidateId": candidate_id})
+
+    if result.deleted_count == 0:
+        return {
+            "status": "not_found",
+            "message": f"No resumes found for candidateId: {candidate_id}"
+        }
+
+    print(f"🗑️ Successfully deleted {result.deleted_count} resumes for candidate {candidate_id}")
+    return {
+        "status": "success",
+        "message": f"Deleted {result.deleted_count} resumes for candidate {candidate_id}."
+    }

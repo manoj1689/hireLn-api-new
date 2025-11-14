@@ -1,0 +1,73 @@
+[
+  {
+    "department": "Engineering",
+    "suggestions": [
+      "JavaScript",
+      "React",
+      "Node.js",
+      "TypeScript",
+      "Git",
+      "REST APIs",
+      "CI/CD",
+      "Docker",
+      "Microservices",
+      "Cloud Deployment"
+    ]
+  },
+  {
+    "department": "Data Science",
+    "suggestions": [
+      "Python",
+      "Pandas",
+      "NumPy",
+      "Machine Learning",
+      "Deep Learning",
+      "SQL",
+      "Data Visualization",
+      "TensorFlow",
+      "Scikit-learn",
+      "Statistics"
+    ]
+  },
+  {
+    "department": "Human Resources",
+    "suggestions": [
+      "Recruitment",
+      "Employee Engagement",
+      "Performance Management",
+      "HR Analytics",
+      "Conflict Resolution",
+      "Compensation & Benefits",
+      "Onboarding",
+      "Training & Development",
+      "Policy Management"
+    ]
+  },
+  {
+    "department": "Legal",
+    "suggestions": [
+      "Contract Drafting",
+      "Legal Research",
+      "Compliance Management",
+      "Corporate Law",
+      "Labor Law",
+      "Intellectual Property",
+      "Case Management",
+      "Documentation Review"
+    ]
+  },
+  {
+    "department": "Marketing",
+    "suggestions": [
+      "SEO",
+      "Content Strategy",
+      "Google Analytics",
+      "Social Media Marketing",
+      "Email Marketing",
+      "Brand Management",
+      "Market Research",
+      "Copywriting",
+      "Advertising Campaigns"
+    ]
+  }
+]

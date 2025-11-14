@@ -9,7 +9,7 @@ from database import connect_db, disconnect_db
 
 
 # Import routers
-from routers import application, auth, jobs, candidates, interviews, dashboard, interview_join, ai_tools, settings, company,ai_interview,try_interview
+from routers import application, auth, jobs, candidates, interviews, dashboard, interview_join, ai_tools, settings, company,ai_interview, skill_suggestion,try_interview
 
 from config.firebase_config import init_firebase
 
@@ -49,6 +49,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["Jobs"])
+app.include_router(skill_suggestion.router, prefix="/api/skillsuggestions", tags=["Skill Suggestions"])
 app.include_router(candidates.router, prefix="/api/candidates", tags=["Candidates"])
 app.include_router(application.router, prefix="/api/application", tags=["application"])
 

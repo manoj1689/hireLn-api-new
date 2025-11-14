@@ -1,6 +1,7 @@
 import json
 from fastapi import APIRouter, HTTPException, status as http_status, Depends, Query
 from typing import List, Optional, Union
+from mongoDb.resume_embeddings import  delete_resumes_by_candidate_id
 from service.activity_service import ActivityHelpers
 from database import get_db
 from models.schemas import (
@@ -238,28 +239,50 @@ async def update_candidate(
 
 
 # ❌ DELETE candidate
-@router.delete("/{candidate_id}", status_code=http_status.HTTP_204_NO_CONTENT)
+
+@router.delete("/{candidate_id}", status_code=http_status.HTTP_200_OK)
 async def delete_candidate(
     candidate_id: str,
     current_user: UserResponse = Depends(get_current_user)
 ):
     db = get_db()
 
-    existing_candidate = await db.candidate.find_unique(where={"id": candidate_id})
-    if not existing_candidate:
-        raise HTTPException(
-            status_code=http_status.HTTP_404_NOT_FOUND,
-            detail="Candidate not found"
+    try:
+        # 1️⃣ Check if candidate exists
+        existing_candidate = await db.candidate.find_unique(where={"id": candidate_id})
+        if not existing_candidate:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail="Candidate not found"
+            )
+
+        # 2️⃣ Delete candidate from Postgres
+        await db.candidate.delete(where={"id": candidate_id})
+
+        # 3️⃣ Delete all resumes from MongoDB
+        deleted_result = delete_resumes_by_candidate_id(candidate_id)
+
+        # 4️⃣ Log activity
+        await ActivityHelpers.log_candidate_deleted(
+            user_id=current_user.id,
+            candidate_id=candidate_id,
+            candidate_name=existing_candidate.name
         )
 
-    await db.candidate.delete(where={"id": candidate_id})
-    
-    await ActivityHelpers.log_candidate_deleted(
-       user_id=current_user.id,
-       candidate_id=candidate_id,
-       candidate_name=existing_candidate.name
-   )
+        # 5️⃣ Return success message
+        return {
+            "status": "success",
+            "message": f"Candidate '{existing_candidate.name}' and their resumes were deleted successfully.",
+            "resume_delete_info": deleted_result
+        }
 
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete candidate: {str(e)}"
+        )
 
 @router.get("/{candidate_id}/status-summary")
 async def get_candidate_status_summary(

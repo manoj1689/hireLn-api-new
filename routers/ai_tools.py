@@ -1,3 +1,4 @@
+from datetime import datetime
 import uuid
 from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Query, UploadFile, File, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -5,7 +6,7 @@ import openai
 from pydantic import BaseModel, Field, ValidationError
 from typing import List, Dict, Any, Optional, Union
 from mongoDb.jd_parser import process_jd
-from mongoDb.resume_embeddings import get_resume_text_by_id, read_resume, save_resume_with_embeddings
+from mongoDb.resume_embeddings import  get_resume_text_by_id, read_resume, save_resume_with_embeddings
 from service.candidate_service import create_or_update_candidate_from_parsed_data
 from utils.openai_client import create_openai_chat
 from dotenv import load_dotenv
@@ -398,7 +399,6 @@ async def preview_candidate_from_resume(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 
 #------------------------------------

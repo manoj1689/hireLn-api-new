@@ -85,7 +85,7 @@ def save_resume_with_embeddings(
         "candidateId": candidate_id
     })
     if existing_resume:
-        raise ValueError(f"Resume '{filename}' already exists for this candidate.")
+        raise ValueError(f" This Resume already exists for this candidate.")
 
     # 2️⃣ Extract candidate info (optional)
     candidate_info = extract_name_email(resume_text)

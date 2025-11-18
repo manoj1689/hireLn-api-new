@@ -160,6 +160,7 @@ class JobUpdate(BaseModel):
 class JobBasicInfo(BaseModel):
     jobTitle: str
     department: str
+    requiredSkills: List[str] = []
     location: str
     employmentType: EmploymentType
     salaryMin: Optional[int] = None
@@ -174,8 +175,7 @@ class JobDetails(BaseModel):
     teamSize: str
     reportingStructure: str
 
-class JobRequirements(BaseModel):
-    requiredSkills: List[str] = []
+class JobRequirements(BaseModel):  
     educationLevel: Optional[str] = None
     certifications: List[str] = []
     requirements: List[str] = []

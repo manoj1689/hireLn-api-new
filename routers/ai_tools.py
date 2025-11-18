@@ -201,84 +201,137 @@ def extract_resume_data(text: str) -> CandidateCreate:
 
 
             
-# --- parse_resumes_upload endpoint ---
-@router.post("/parse-resumes-upload")
-async def parse_resumes_upload(
-    files: List[UploadFile] = File(..., description="List of PDF resume files to upload and parse."),
+# # --- parse_resumes_upload endpoint ---
+# @router.post("/parse-resumes-upload")
+# async def parse_resumes_upload(
+#     files: List[UploadFile] = File(..., description="List of PDF resume files to upload and parse."),
+#     current_user: UserResponse = Depends(get_current_user),
+#     db: Prisma = Depends(get_db)
+# ):
+#     """
+#     Upload multiple resumes, create or update candidates in Postgres,
+#     save each resume to MongoDB with userId and candidateId,
+#     and return upload summary.
+#     """
+#     creation_summary = []
+
+#     for file in files:
+#         file_name = file.filename
+#         temp_path = None
+
+#         try:
+#             # 1️⃣ Save uploaded file temporarily
+#             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+#                 temp_file.write(await file.read())
+#                 temp_path = Path(temp_file.name)
+
+#             # 2️⃣ Read resume text
+#             text = read_resume(temp_path)
+
+#             # 3️⃣ Extract parsed data (from AI or parser)
+#             parsed_data = extract_resume_data(text)
+
+#             # 4️⃣ Create or update candidate in PostgreSQL
+#             success, message, candidate_info = await create_or_update_candidate_from_parsed_data(
+#                 parsed_data,
+#                 current_user,
+#                 db
+#             )
+
+#             if not success or not candidate_info:
+#                 creation_summary.append({
+#                     "resume_name": file_name,
+#                     "success": False,
+#                     "message": message
+#                 })
+#                 continue
+
+#             candidate_id = candidate_info["candidate_id"]
+
+#             # 5️⃣ Save resume to MongoDB with userId & candidateId
+#             resume_id = save_resume_with_embeddings(
+#                 file_name,
+#                 text,
+#                 user_id=current_user.id,
+#                 candidate_id=candidate_id
+#             )
+
+#             # 6️⃣ Add summary entry
+#             creation_summary.append({
+#                 "resume_name": file_name,
+#                 "resume_id": str(resume_id),
+#                 "candidate_id": candidate_id,
+#                 "candidate_name": candidate_info["candidate_name"],
+#                 "success": True,
+#                 "message": "Resume uploaded and candidate processed successfully"
+#             })
+
+#         except Exception as e:
+#             creation_summary.append({
+#                 "resume_name": file_name,
+#                 "success": False,
+#                 "message": str(e)
+#             })
+
+#         finally:
+#             # 🧹 Cleanup temp file
+#             if temp_path and temp_path.exists():
+#                 temp_path.unlink(missing_ok=True)
+
+#     return {"summary": creation_summary}
+
+
+@router.post("/parse-resume-upload")
+async def parse_resume_upload(
+    file: UploadFile = File(...),
     current_user: UserResponse = Depends(get_current_user),
     db: Prisma = Depends(get_db)
 ):
-    """
-    Upload multiple resumes, create or update candidates in Postgres,
-    save each resume to MongoDB with userId and candidateId,
-    and return upload summary.
-    """
-    creation_summary = []
-
-    for file in files:
-        file_name = file.filename
+    try:
         temp_path = None
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+            temp_file.write(await file.read())
+            temp_path = Path(temp_file.name)
 
+        text = read_resume(temp_path)
+        parsed_data = extract_resume_data(text)
+
+        success, message, candidate_info = await create_or_update_candidate_from_parsed_data(
+            parsed_data, current_user, db
+        )
+
+        if not success or not candidate_info:
+            return {"success": False, "message": message, "resume_name": file.filename}
+
+        candidate_id = candidate_info["candidate_id"]
+
+        # 🔥 Catch ValueError from duplicate resume
         try:
-            # 1️⃣ Save uploaded file temporarily
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-                temp_file.write(await file.read())
-                temp_path = Path(temp_file.name)
-
-            # 2️⃣ Read resume text
-            text = read_resume(temp_path)
-
-            # 3️⃣ Extract parsed data (from AI or parser)
-            parsed_data = extract_resume_data(text)
-
-            # 4️⃣ Create or update candidate in PostgreSQL
-            success, message, candidate_info = await create_or_update_candidate_from_parsed_data(
-                parsed_data,
-                current_user,
-                db
-            )
-
-            if not success or not candidate_info:
-                creation_summary.append({
-                    "resume_name": file_name,
-                    "success": False,
-                    "message": message
-                })
-                continue
-
-            candidate_id = candidate_info["candidate_id"]
-
-            # 5️⃣ Save resume to MongoDB with userId & candidateId
             resume_id = save_resume_with_embeddings(
-                file_name,
+                file.filename,
                 text,
                 user_id=current_user.id,
                 candidate_id=candidate_id
             )
-
-            # 6️⃣ Add summary entry
-            creation_summary.append({
-                "resume_name": file_name,
-                "resume_id": str(resume_id),
-                "candidate_id": candidate_id,
-                "candidate_name": candidate_info["candidate_name"],
-                "success": True,
-                "message": "Resume uploaded and candidate processed successfully"
-            })
-
-        except Exception as e:
-            creation_summary.append({
-                "resume_name": file_name,
+        except ValueError as e:
+            # Return a clean JSON error
+            return {
                 "success": False,
-                "message": str(e)
-            })
+                "message": str(e),
+                "resume_name": file.filename
+            }
 
-        finally:
-            # 🧹 Cleanup temp file
-            if temp_path and temp_path.exists():
-                temp_path.unlink(missing_ok=True)
+        return {
+            "success": True,
+            "resume_name": file.filename,
+            "candidate_id": candidate_id,
+            "resume_id": str(resume_id),
+            "candidate_name": candidate_info["candidate_name"]
+        }
 
-    return {"summary": creation_summary}
+    finally:
+        if temp_path and temp_path.exists():
+            temp_path.unlink(missing_ok=True)
 
 #-------------------------------
 # Read Resume and show Candidate

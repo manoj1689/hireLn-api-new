@@ -719,12 +719,28 @@ async def delete_interview(
 async def auto_evaluate_interview(
     interview_id: str,
     knowledge_level: str = Query("intermediate", description="Knowledge level: beginner, intermediate, advanced"),
-    current_user: UserResponse = Depends(get_current_user)
 ):
     db = get_db()
 
+    # --------------------------
+    # LABEL → SCORE CONVERSION
+    # --------------------------
+    def convert_label_to_score(label: str):
+        label = (label or "").lower()
+        mapping = {
+            "excellent": 5,
+            "very good": 4,
+            "good": 3,
+            "average": 2,
+            "poor": 1,
+            "low": 1,
+            "medium": 3,
+            "high": 5
+        }
+        return mapping.get(label, 0)
+
     try:
-        # Step 1: Validate interview and auth
+        # Step 1: Validate interview
         interview = await db.interview.find_unique(
             where={"id": interview_id},
             include={"scheduledBy": True, "candidate": True, "job": True}
@@ -732,30 +748,20 @@ async def auto_evaluate_interview(
         if not interview:
             raise HTTPException(status_code=404, detail="Interview not found")
 
-
-        # Step 2: Fetch existing evaluations
+        # Step 2: Get all question evaluations
         questionsEvaluation = await db.evaluation.find_many(where={"interviewId": interview_id})
         if not questionsEvaluation:
             raise HTTPException(status_code=400, detail="No questions found")
 
         evaluations = []
-        total_scores = {
-            "factualAccuracy": 0.0,
-            "completeness": 0.0,
-            "relevance": 0.0,
-            "coherence": 0.0,
-            "score": 0.0,
-        }
-        count = 0
-        final_evaluations = []
+        scores = []
+        fa_scores, comp_scores, rel_scores, coh_scores = [], [], [], []
 
-        def rating_to_score(rating: str) -> float:
-            mapping = {"Poor": 1.0, "Fair": 2.0, "Good": 3.0, "Excellent": 4.0}
-            return mapping.get(rating.strip().title(), 2.0)
-
+        # --------------------------
+        # PROCESS EACH EVALUATION
+        # --------------------------
         for q in questionsEvaluation:
-            count += 1
-            if q.factualAccuracy and q.evaluatedAt:
+            if q.evaluatedAt:
                 evaluations.append({
                     "questionId": q.id,
                     "questionText": q.question,
@@ -773,29 +779,36 @@ async def auto_evaluate_interview(
                         "finalEvaluation": q.finalEvaluation
                     }
                 })
-                total_scores["factualAccuracy"] += rating_to_score(q.factualAccuracy)
-                total_scores["completeness"] += rating_to_score(q.completeness)
-                total_scores["relevance"] += rating_to_score(q.relevance)
-                total_scores["coherence"] += rating_to_score(q.coherence)
-                total_scores["score"] += q.score or 0
-                final_evaluations.append(q.finalEvaluation or "")
+
+                # numeric score
+                if q.score is not None:
+                    scores.append(q.score)
+
+                # convert text labels → numeric
+                fa_scores.append(convert_label_to_score(q.factualAccuracy))
+                comp_scores.append(convert_label_to_score(q.completeness))
+                rel_scores.append(convert_label_to_score(q.relevance))
+                coh_scores.append(convert_label_to_score(q.coherence))
+
             else:
                 evaluations.append({
                     "questionId": q.id,
-                    "questionText": q.questionText,
+                    "questionText": q.question,
                     "note": "Evaluation not available yet",
-                    "score": 0.0
                 })
 
-        def average(val: float) -> float:
-            return round(val / count, 2) if count > 0 else 0.0
+        # --------------------------
+        # AVERAGES (Now Correct!)
+        # --------------------------
+        avg_score = round(sum(scores) / len(scores), 2) if scores else 0.0
+        avg_fa = round(sum(fa_scores) / len(fa_scores), 2) if fa_scores else 0.0
+        avg_comp = round(sum(comp_scores) / len(comp_scores), 2) if comp_scores else 0.0
+        avg_rel = round(sum(rel_scores) / len(rel_scores), 2) if rel_scores else 0.0
+        avg_coh = round(sum(coh_scores) / len(coh_scores), 2) if coh_scores else 0.0
 
-        avg_fa = average(total_scores["factualAccuracy"])
-        avg_comp = average(total_scores["completeness"])
-        avg_rel = average(total_scores["relevance"])
-        avg_coh = average(total_scores["coherence"])
-        avg_score = average(total_scores["score"])
-
+        # --------------------------
+        # PASS / FAIL DECISION
+        # --------------------------
         if avg_score >= 4.0:
             pass_status = "pass"
             summary_result = "Candidate passed with Excellent performance"
@@ -812,9 +825,11 @@ async def auto_evaluate_interview(
             pass_status = "fail"
             summary_result = "Candidate failed – Incomplete or missing answers"
 
-        # Step 3: Manual safe upsert
+        # --------------------------
+        # BUILD RESULT DATA
+        # --------------------------
         result_data = {
-            "evaluatedCount": len([q for q in questionsEvaluation if q.factualAccuracy]),
+            "evaluatedCount": len(scores),
             "totalQuestions": len(questionsEvaluation),
             "averageFactualAccuracy": avg_fa,
             "averageCompleteness": avg_comp,
@@ -827,43 +842,41 @@ async def auto_evaluate_interview(
             "recommendations": None
         }
 
-        try:
-            existing_result = await db.interviewresult.find_unique(where={"interviewId": interview_id})
-            if existing_result:
-                await db.interviewresult.update(
-                    where={"interviewId": interview_id},
-                    data=result_data
-                )
-            else:
-                await db.interviewresult.create(
-                    data={
-                        **result_data,
-                        "interviewId": interview_id,
-                        "candidateId": interview.candidateId,
-                        "applicationId":interview.applicationId,
-                        "jobId": interview.jobId or "Unknown",
-                    }
-                )
-        except Exception as e:
-            # fallback if a unique constraint error occurs due to race condition
-            if "Unique constraint failed" in str(e):
-                await db.interviewresult.update(
-                    where={"interviewId": interview_id},
-                    data=result_data
-                )
-            else:
-                raise e
+        # --------------------------
+        # UPSERT RESULT
+        # --------------------------
+        existing_result = await db.interviewresult.find_unique(where={"interviewId": interview_id})
+        if existing_result:
+            await db.interviewresult.update(
+                where={"interviewId": interview_id},
+                data=result_data
+            )
+        else:
+            await db.interviewresult.create(
+                data={
+                    **result_data,
+                    "interviewId": interview_id,
+                    "candidateId": interview.candidateId,
+                    "applicationId": interview.applicationId,
+                    "jobId": interview.jobId or "Unknown"
+                }
+            )
 
+        # --------------------------
         # Log activity
+        # --------------------------
         if interview.candidate and interview.job:
-           await ActivityHelpers.log_ai_evaluation_completed(
-               user_id= interview.scheduledBy,
-               interview_id=interview.id,
-               candidate_name=interview.candidate.name,
-               job_title=interview.job.title,
-               score=avg_score
-           )
-        # Step 4: Return evaluation summary
+            await ActivityHelpers.log_ai_evaluation_completed(
+                user_id=interview.scheduledBy,
+                interview_id=interview.id,
+                candidate_name=interview.candidate.name,
+                job_title=interview.job.title,
+                score=avg_score
+            )
+
+        # --------------------------
+        # FINAL RESPONSE
+        # --------------------------
         return {
             "success": True,
             "interviewId": interview_id,
@@ -882,7 +895,6 @@ async def auto_evaluate_interview(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Evaluation failed: {str(e)}")
-
 
 
 @router.post("/interview/{interview_id}/send-result")

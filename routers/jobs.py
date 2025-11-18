@@ -186,6 +186,7 @@ async def create_job_step4(
         "title": basic_info.jobTitle,
         "description": job_details.jobDescription,
         "department": basic_info.department,
+        "skills": basic_info.requiredSkills or [],
         "location": basic_info.location,
         "employmentType": basic_info.employmentType,
         "salaryMin": basic_info.salaryMin or 0,
@@ -196,8 +197,7 @@ async def create_job_step4(
         "teamSize": job_details.teamSize,
         "reportingStructure": job_details.reportingStructure,
         
-        # Requirements fields - ensure they're properly mapped
-        "skills": requirements.requiredSkills or [],
+        # Requirements fields - ensure they're properly mapped      
         "requirements": requirements.requirements or [],  # Add empty requirements array if needed
         "education": requirements.educationLevel,  # This should save to education field
         "certifications": requirements.certifications or [],

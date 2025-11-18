@@ -251,18 +251,20 @@ async def evaluate_interview(
         chat_history = await db.chathistory.find_many(
             where={"interviewId": interviewId}
         )
-
+        print(chat_history)
         if not chat_history:
             raise HTTPException(status_code=404, detail="No chat history found for this interview")
 
         saved_results = []
         for chat in chat_history:
+
             score_data = await evaluate_question_answer(chat.question, chat.answer or "")
             eval_record = await db.evaluation.create(
                 data={
                     "question": chat.question,
                     "answer": chat.answer or "",
                     "interviewId": interviewId,
+                    "score": chat.score,
                     "factualAccuracy": score_data.get("factualAccuracy"),
                     "factualAccuracyExplanation": score_data.get("factualAccuracyExplanation"),
                     "completeness": score_data.get("completeness"),
@@ -271,7 +273,6 @@ async def evaluate_interview(
                     "relevanceExplanation": score_data.get("relevanceExplanation"),
                     "coherence": score_data.get("coherence"),
                     "coherenceExplanation": score_data.get("coherenceExplanation"),
-                    "score": score_data.get("score"),
                     "finalEvaluation": score_data.get("finalEvaluation"),
                     "evaluatedAt": datetime.utcnow()
                 }

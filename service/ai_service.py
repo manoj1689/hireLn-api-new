@@ -161,17 +161,24 @@ def generate_intent_response(intent: str, question: str, user_input: str = "") -
 # --- Scoring Tool ---
 def score_answer(question: str, answer: str):
     prompt = ChatPromptTemplate.from_template("""
-    You are an evaluator. Rate the candidate's answer 1–5.
+    You are a lenient evaluator. Your goal is to score the candidate's answer from 1–5.
+
+    🟢 SCORING RULES (VERY IMPORTANT):
+    - Ignore grammar, spelling, and sentence structure errors completely.
+    - Focus ONLY on the meaning, correctness, and relevance of the answer.
+    - If the answer is even partially correct or shows partial understanding, give a higher score (4–5).
+    - Reserve low scores (1–2) ONLY for answers that are totally irrelevant or incorrect.
+    - Never penalize for short answers if they are correct.
 
     Question: {question}
     Answer: {answer}
 
     Respond ONLY as valid JSON:
     {{
-      "score": <1-5>
-      
+    "score": <1-5>
     }}
     """)
+
     chain = prompt | llm
     response = chain.invoke({"question": question, "answer": answer})
     raw = response.content.strip()
@@ -185,30 +192,37 @@ def score_answer(question: str, answer: str):
 # --- Intent Detection ---
 def detect_intent(message: str) -> str:
     prompt = ChatPromptTemplate.from_template("""
-    Identify intent from this message:
-    "{message}"
+    You are an intent classifier.  
+    Be VERY lenient. Ignore grammar and spelling mistakes completely.
 
-    Intents:
-    - "answer"
-    - "repeat"
-    - "offtopic"
-    - "unclear"
-    - "negative"
-    - "next"
-    - "exit"
+    Message: "{message}"
 
-    Return only the intent.
+    Available intents:
+    - "answer"    → user is trying to answer the question
+    - "repeat"    → user is asking to repeat
+    - "offtopic"  → message is clearly unrelated to the interview
+    - "negative"  → user refuses, complains, or denies
+    - "next"      → user wants next question
+    - "exit"      → user wants to stop or leave
+    - "unclear"   → only if message has *no meaning at all* (random text, emoji spam, empty)
+
+    IMPORTANT RULES:
+    - DO NOT use "unclear" unless the message is completely meaningless.
+    - If the user *tries* to answer (even partially or with errors), classify as "answer".
+    - Minor or heavy grammar mistakes must be ignored.
+    - Be tolerant. Prefer "answer" or "next" instead of "unclear".
+
+    Respond with ONLY the intent string.
     """)
 
     chain = prompt | llm
     response = chain.invoke({"message": message}).content.strip().lower()
 
-    # ✅ Remove surrounding quotes if LLM returns like `"answer"`
+    # Clean quotes
     if response.startswith('"') and response.endswith('"'):
         response = response[1:-1].strip()
 
     return response
-
 
 
 

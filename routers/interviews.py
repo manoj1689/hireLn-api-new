@@ -288,7 +288,7 @@ async def get_interview(
 ):
     """Get a specific interview by ID with auth scoping"""
     db = get_db()
-
+    print("auth data",auth_data)
     where_clause = {"id": interview_id}
 
     # 🔒 Restrict access based on auth type
@@ -298,6 +298,7 @@ async def get_interview(
     elif isinstance(auth_data, dict):
         # Token dict → check allowed interviewId
         allowed_id = auth_data.get("interviewId")
+        print("allowed id",allowed_id)
         if allowed_id and allowed_id != interview_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -719,6 +720,7 @@ async def delete_interview(
 async def auto_evaluate_interview(
     interview_id: str,
     knowledge_level: str = Query("intermediate", description="Knowledge level: beginner, intermediate, advanced"),
+    
 ):
     db = get_db()
 
@@ -741,7 +743,7 @@ async def auto_evaluate_interview(
 
     try:
         # Step 1: Validate interview
-        interview = await db.interview.find_unique(
+        interview = await db.interview.find_first(
             where={"id": interview_id},
             include={"scheduledBy": True, "candidate": True, "job": True}
         )
@@ -845,7 +847,7 @@ async def auto_evaluate_interview(
         # --------------------------
         # UPSERT RESULT
         # --------------------------
-        existing_result = await db.interviewresult.find_unique(where={"interviewId": interview_id})
+        existing_result = await db.interviewresult.find_first(where={"interviewId": interview_id})
         if existing_result:
             await db.interviewresult.update(
                 where={"interviewId": interview_id},
@@ -857,7 +859,6 @@ async def auto_evaluate_interview(
                     **result_data,
                     "interviewId": interview_id,
                     "candidateId": interview.candidateId,
-                    "applicationId": interview.applicationId,
                     "jobId": interview.jobId or "Unknown"
                 }
             )

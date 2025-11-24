@@ -37,14 +37,14 @@ def start_interview(
 ):
     if not req.candidate:
         raise HTTPException(status_code=400, detail="Candidate info is required.")
-
+    print("guest auth data or candidate",auth_data)
     # ✅ Access restriction
-    where_clause = {"id": req.interview_id} if hasattr(req, "interview_id") else {}
+    where_clause = {"id": req.interviewId} if hasattr(req, "interview_id") else {}
     if isinstance(auth_data, UserResponse):
         where_clause["scheduledById"] = auth_data.id
     elif isinstance(auth_data, dict):
         allowed_id = auth_data.get("interviewId")
-        if allowed_id and allowed_id != req.interview_id:
+        if allowed_id and allowed_id != req.interviewId:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You are not authorized to access this interview",

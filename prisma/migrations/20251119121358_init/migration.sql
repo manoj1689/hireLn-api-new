@@ -14,13 +14,13 @@ CREATE TYPE "EmploymentType" AS ENUM ('FULL_TIME', 'PART_TIME', 'CONTRACT', 'TEM
 CREATE TYPE "JobStatus" AS ENUM ('DRAFT', 'ACTIVE', 'PAUSED', 'CLOSED');
 
 -- CreateEnum
-CREATE TYPE "ApplicationStatus" AS ENUM ('INVITED', 'APPLIED', 'SCREENING', 'INTERVIEW', 'OFFER', 'HIRED', 'REJECTED');
+CREATE TYPE "ApplicationStatus" AS ENUM ('NEW', 'INVITED', 'APPLIED', 'SCREENING', 'INTERVIEW', 'OFFER', 'HIRED', 'REJECTED');
 
 -- CreateEnum
 CREATE TYPE "InterviewType" AS ENUM ('PHONE', 'VIDEO', 'IN_PERSON', 'TECHNICAL', 'BEHAVIORAL', 'PANEL');
 
 -- CreateEnum
-CREATE TYPE "InterviewStatus" AS ENUM ('SCHEDULED', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW', 'RESCHEDULED', 'INVITED', 'JOINED');
+CREATE TYPE "InterviewStatus" AS ENUM ('SCHEDULED', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NOT_SCHEDULED', 'RESCHEDULED', 'INVITED', 'JOINED');
 
 -- CreateTable
 CREATE TABLE "users" (
@@ -262,6 +262,17 @@ CREATE TABLE "job_sessions" (
 );
 
 -- CreateTable
+CREATE TABLE "skill_suggestions" (
+    "id" TEXT NOT NULL,
+    "department" TEXT NOT NULL,
+    "suggestions" TEXT[],
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "skill_suggestions_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "jobs" (
     "id" TEXT NOT NULL,
     "title" TEXT NOT NULL,
@@ -302,8 +313,6 @@ CREATE TABLE "jobs" (
 CREATE TABLE "candidates" (
     "id" TEXT NOT NULL,
     "email" TEXT NOT NULL,
-    "resumeId" TEXT,
-    "resumeName" TEXT,
     "name" TEXT NOT NULL,
     "phone" TEXT,
     "address" TEXT[],
@@ -322,8 +331,8 @@ CREATE TABLE "candidates" (
     "hobbies" TEXT[],
     "salaryExpectation" INTEGER,
     "department" TEXT,
-    "applicationStatus" TEXT,
-    "interviewStatus" TEXT,
+    "applicationStatus" "ApplicationStatus" NOT NULL DEFAULT 'NEW',
+    "interviewStatus" "InterviewStatus" NOT NULL DEFAULT 'NOT_SCHEDULED',
     "resume" TEXT,
     "portfolio" TEXT,
     "linkedin" TEXT,
@@ -344,6 +353,8 @@ CREATE TABLE "applications" (
     "status" "ApplicationStatus" NOT NULL DEFAULT 'INVITED',
     "matchScore" INTEGER,
     "notes" TEXT,
+    "joinToken" TEXT,
+    "tokenExpiry" TIMESTAMP(3),
     "appliedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "userId" TEXT NOT NULL,
@@ -375,9 +386,23 @@ CREATE TABLE "interviews" (
     "invitationSent" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "startedAt" TIMESTAMP(3),
     "completedAt" TIMESTAMP(3),
 
     CONSTRAINT "interviews_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "interview_screenshots" (
+    "id" TEXT NOT NULL,
+    "interviewId" TEXT NOT NULL,
+    "imageUrl" TEXT NOT NULL,
+    "faceVerified" BOOLEAN,
+    "multiFace" BOOLEAN,
+    "note" TEXT,
+    "capturedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "interview_screenshots_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -407,7 +432,7 @@ CREATE TABLE "interview_results" (
 -- CreateTable
 CREATE TABLE "chat_history" (
     "id" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
+    "interviewId" TEXT NOT NULL,
     "candidateId" TEXT,
     "applicationId" TEXT,
     "question" TEXT NOT NULL,
@@ -422,7 +447,7 @@ CREATE TABLE "chat_history" (
 -- CreateTable
 CREATE TABLE "evaluations" (
     "id" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
+    "interviewId" TEXT NOT NULL,
     "question" TEXT NOT NULL,
     "answer" TEXT NOT NULL,
     "factualAccuracy" TEXT,
@@ -442,6 +467,18 @@ CREATE TABLE "evaluations" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "evaluations_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "_JobSkillSuggestions" (
+    "A" TEXT NOT NULL,
+    "B" TEXT NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "_CandidateSkillSuggestions" (
+    "A" TEXT NOT NULL,
+    "B" TEXT NOT NULL
 );
 
 -- CreateIndex
@@ -494,6 +531,18 @@ CREATE UNIQUE INDEX "interview_results_interviewId_key" ON "interview_results"("
 
 -- CreateIndex
 CREATE UNIQUE INDEX "interview_results_applicationId_key" ON "interview_results"("applicationId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "_JobSkillSuggestions_AB_unique" ON "_JobSkillSuggestions"("A", "B");
+
+-- CreateIndex
+CREATE INDEX "_JobSkillSuggestions_B_index" ON "_JobSkillSuggestions"("B");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "_CandidateSkillSuggestions_AB_unique" ON "_CandidateSkillSuggestions"("A", "B");
+
+-- CreateIndex
+CREATE INDEX "_CandidateSkillSuggestions_B_index" ON "_CandidateSkillSuggestions"("B");
 
 -- AddForeignKey
 ALTER TABLE "Activity" ADD CONSTRAINT "Activity_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -553,10 +602,28 @@ ALTER TABLE "interviews" ADD CONSTRAINT "interviews_scheduledById_fkey" FOREIGN 
 ALTER TABLE "interviews" ADD CONSTRAINT "interviews_jobId_fkey" FOREIGN KEY ("jobId") REFERENCES "jobs"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "interview_screenshots" ADD CONSTRAINT "interview_screenshots_interviewId_fkey" FOREIGN KEY ("interviewId") REFERENCES "interviews"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "interview_results" ADD CONSTRAINT "interview_results_interviewId_fkey" FOREIGN KEY ("interviewId") REFERENCES "interviews"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "interview_results" ADD CONSTRAINT "interview_results_applicationId_fkey" FOREIGN KEY ("applicationId") REFERENCES "applications"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "chat_history" ADD CONSTRAINT "chat_history_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "chat_history" ADD CONSTRAINT "chat_history_interviewId_fkey" FOREIGN KEY ("interviewId") REFERENCES "interviews"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "evaluations" ADD CONSTRAINT "evaluations_interviewId_fkey" FOREIGN KEY ("interviewId") REFERENCES "interviews"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "_JobSkillSuggestions" ADD CONSTRAINT "_JobSkillSuggestions_A_fkey" FOREIGN KEY ("A") REFERENCES "jobs"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "_JobSkillSuggestions" ADD CONSTRAINT "_JobSkillSuggestions_B_fkey" FOREIGN KEY ("B") REFERENCES "skill_suggestions"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "_CandidateSkillSuggestions" ADD CONSTRAINT "_CandidateSkillSuggestions_A_fkey" FOREIGN KEY ("A") REFERENCES "candidates"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "_CandidateSkillSuggestions" ADD CONSTRAINT "_CandidateSkillSuggestions_B_fkey" FOREIGN KEY ("B") REFERENCES "skill_suggestions"("id") ON DELETE CASCADE ON UPDATE CASCADE;

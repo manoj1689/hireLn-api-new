@@ -308,6 +308,7 @@ class InterviewRescheduleRequest(BaseModel):
     notifyCandidate: bool = True
 
 class StartInterviewRequest(BaseModel):
+    interviewId: str
     candidate: dict  # e.g., {"name": "John Doe", "role": "Software Engineer", "experience": "3 years"}
 
 # ✅ Single chat entry (for interview history)
@@ -440,6 +441,50 @@ class InterviewCalendarEvent(BaseModel):
     attendees: List[str] = []
     location: Optional[str] = None
     meetingLink: Optional[str] = None
+
+
+
+# ============================================
+# 1️⃣ REQUEST MODEL FOR UPLOAD
+# ============================================
+class ScreenshotUploadRequest(BaseModel):
+    interview_id: str
+    faceVerified: Optional[bool] = None
+    multiFace: Optional[bool] = None
+    note: Optional[str] = None
+
+
+# ============================================
+# 2️⃣ SINGLE SCREENSHOT RESPONSE
+# ============================================
+class ScreenshotResponse(BaseModel):
+    id: str
+    interviewId: str
+    imageUrl: str
+    faceVerified: Optional[bool] = None
+    multiFace: Optional[bool] = None
+    note: Optional[str] = None
+    capturedAt: datetime
+    model_config = {
+        "from_attributes": True
+    }
+class ScreenshotSaveResponse(BaseModel):
+    success: bool
+    screenshot: ScreenshotResponse
+# ============================================
+# 3️⃣ LIST RESPONSE (USED IN /list API)
+# ============================================
+class ScreenshotListResponse(BaseModel):
+    count: int
+    screenshots: List[ScreenshotResponse]
+
+
+# ============================================
+# 4️⃣ DELETE RESPONSE
+# ============================================
+class ScreenshotDeleteResponse(BaseModel):
+    success: bool
+    deletedId: str
 
 # New schemas for calendar integration and join tokens
 class CalendarInviteResponse(BaseModel):

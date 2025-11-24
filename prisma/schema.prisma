@@ -446,7 +446,6 @@ model Application {
   userId       String
   interviews   Interview[]
 
-  interviewResult InterviewResult? @relation("ApplicationToResult")
 
   @@unique([jobId, candidateId])
   @@map("applications")
@@ -501,15 +500,37 @@ model Interview {
 
   chatHistory     ChatHistory[]   @relation("InterviewToChatHistory")
   evaluations     Evaluation[]    @relation("InterviewToEvaluations")     
+  screenshots     InterviewScreenshot[]
   @@map("interviews")
+}
+
+model InterviewScreenshot {
+  id           String     @id @default(cuid())
+  interviewId  String
+
+  // File URL of saved screenshot
+  imageUrl     String
+
+  // Optional — face verification flags
+  faceVerified Boolean?   // true if a face was detected
+  multiFace    Boolean?   // true if more than one face detected
+
+  // Optional — any message such as "No face detected", "Multiple faces", etc.
+  note         String?
+
+  capturedAt   DateTime   @default(now())
+
+  interview    Interview  @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  
+
+  @@map("interviewscreenshot")
 }
 
 
 model InterviewResult {
   id                      String     @id @default(cuid())
   interviewId             String     @unique
-  candidateId             String
-  applicationId           String     @unique
+  candidateId             String  
   jobId                   String
   evaluatedCount          Int
   totalQuestions          Int
@@ -526,7 +547,7 @@ model InterviewResult {
   updatedAt               DateTime   @updatedAt
 
   interview               Interview   @relation(fields: [interviewId], references: [id], onDelete: Cascade)
-  application             Application @relation("ApplicationToResult", fields: [applicationId], references: [id], onDelete: Cascade)
+ 
   
   @@map("interview_results")
 }

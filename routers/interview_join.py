@@ -31,6 +31,7 @@ async def join_interview(
             where_clause["scheduledById"] = auth_data.id
         elif isinstance(auth_data, dict):
             allowed_id = auth_data.get("interviewId")
+            print("Allowed id",allowed_id)
             if allowed_id and allowed_id != interview_id:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,

@@ -24,7 +24,7 @@ class SkillSuggestionResponse(SkillSuggestionBase):
     id: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ✅ Get all suggestions (Public)

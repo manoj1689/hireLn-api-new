@@ -60,8 +60,8 @@ class EmailService:
         job_id:str,
         application_title: str,
         join_token:str,
-        frontend_url: str = "https://hireln.com" 
-        # frontend_url: str = "http://localhost:3000"  
+        # frontend_url: str = "https://hireln.com" 
+        frontend_url: str = "http://localhost:3000"  
     ) -> bool:
         """
         Send an ACCEPT/REJECT invitation email with a link.
@@ -154,8 +154,8 @@ class EmailService:
         interviewers: Optional[List[str]] = None,
         interview_id: Optional[str] = None,
         join_token: Optional[str] = None,
-        frontend_url: str = "https://hireln.com"
-        # frontend_url: str = "http://localhost:3000"
+        # frontend_url: str = "https://hireln.com"
+        frontend_url: str = "http://localhost:3000"
     ) -> bool:
         """Send interview invitation email with full interview metadata"""
 

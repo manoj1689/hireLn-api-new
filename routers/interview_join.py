@@ -257,6 +257,60 @@ async def start_interview(
 
 
 # ------------------------------------------------------
+# ❌ CANCEL INTERVIEW
+# ------------------------------------------------------
+@router.put("/{interview_id}/cancel")
+async def cancel_interview(
+    interview_id: str,
+    auth_data: Union[UserResponse, dict] = Depends(get_user_or_interview_auth),
+):
+    """Mark interview as CANCELLED."""
+
+    db = get_db()
+    try:
+        where_clause = {"id": interview_id}
+
+        # Authorization check (same as complete)
+        if isinstance(auth_data, UserResponse):
+            where_clause["scheduledById"] = auth_data.id
+
+        elif isinstance(auth_data, dict):
+            allowed_id = auth_data.get("interviewId")
+            if allowed_id and allowed_id != interview_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You are not authorized to cancel this interview",
+                )
+
+        # Check interview exists
+        interview = await db.interview.find_unique(where=where_clause)
+        if not interview:
+            raise HTTPException(status_code=404, detail="Interview not found")
+
+        # Update interview status → CANCELLED
+        await db.interview.update(
+            where={"id": interview_id},
+            data={
+                "status": InterviewStatus.CANCELLED,
+                "completedAt": datetime.now(timezone.utc)
+            },
+        )
+
+        return {
+            "success": True,
+            "message": "Interview cancelled successfully",
+            "status": InterviewStatus.CANCELLED,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cancelling interview {interview_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+
+# ------------------------------------------------------
 # ✅ COMPLETE INTERVIEW
 # ------------------------------------------------------
 @router.put("/{interview_id}/complete")

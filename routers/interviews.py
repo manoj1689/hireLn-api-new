@@ -102,8 +102,8 @@ async def schedule_interview(
                 interviewers=interviewers_str_list,
                 interview_id=interview.id,
                 join_token=join_token,
-                # frontend_url="http://localhost:3000"
-                frontend_url="https://hireln.com"
+                 frontend_url="http://localhost:3000"
+                # frontend_url="https://hireln.com"
                 
             )
             if email_sent:

@@ -7,8 +7,44 @@ from dotenv import load_dotenv
 # --- Load env ---
 load_dotenv()
 
-# --- Setup LLM ---
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
+from langchain_core.callbacks import BaseCallbackHandler
+
+class TokenCounter(BaseCallbackHandler):
+    def __init__(self):
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+        self.total_tokens = 0
+
+    def on_llm_end(self, response, **kwargs):
+        # LangChain 0.2+ surfaces token info on `llm_output["token_usage"]`
+        # but older/OpenAI responses may tuck it into generation/message metadata.
+        usage = {}
+
+        llm_output = getattr(response, "llm_output", None) or {}
+        usage = llm_output.get("token_usage") or llm_output.get("usage") or {}
+
+        if not usage and getattr(response, "generations", None):
+            first_generation = response.generations[0][0]
+            gen_info = getattr(first_generation, "generation_info", None) or {}
+            usage = gen_info.get("token_usage") or gen_info.get("usage") or {}
+
+            if not usage:
+                message_meta = getattr(getattr(first_generation, "message", None), "response_metadata", {}) or {}
+                usage = message_meta.get("token_usage") or message_meta.get("usage") or {}
+
+        self.prompt_tokens += usage.get("prompt_tokens", 0)
+        self.completion_tokens += usage.get("completion_tokens", 0)
+        self.total_tokens += usage.get("total_tokens", 0)
+
+
+token_counter = TokenCounter()
+
+llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0.7,
+    callbacks=[token_counter]  # attach counter
+)
+
 # -----------------------------
 # Greeting / Introduction
 # -----------------------------
@@ -289,3 +325,8 @@ async def evaluate_question_answer(question: str, answer: str) -> dict:
 
     return data
 
+
+print("Tokens Used:")
+print("Prompt:", token_counter.prompt_tokens)
+print("Completion:", token_counter.completion_tokens)
+print("Total:", token_counter.total_tokens)
